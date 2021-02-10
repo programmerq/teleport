@@ -30,7 +30,7 @@ import (
 	"github.com/gravitational/teleport"
 	"github.com/gravitational/teleport/api/client/proto"
 	"github.com/gravitational/teleport/api/constants"
-	"github.com/gravitational/teleport/lib/auth"
+	"github.com/gravitational/teleport/lib/auth/server"
 	"github.com/gravitational/teleport/lib/auth/u2f"
 	"github.com/gravitational/teleport/lib/defaults"
 
@@ -404,7 +404,7 @@ func Find(ctx context.Context, proxyAddr string, insecure bool, pool *x509.CertP
 }
 
 // SSHAgentSSOLogin is used by tsh to fetch user credentials using OpenID Connect (OIDC) or SAML.
-func SSHAgentSSOLogin(ctx context.Context, login SSHLoginSSO) (*auth.SSHLoginResponse, error) {
+func SSHAgentSSOLogin(ctx context.Context, login SSHLoginSSO) (*server.SSHLoginResponse, error) {
 	rd, err := NewRedirector(ctx, login)
 	if err != nil {
 		return nil, trace.Wrap(err)
@@ -473,7 +473,7 @@ func SSHAgentSSOLogin(ctx context.Context, login SSHLoginSSO) (*auth.SSHLoginRes
 }
 
 // SSHAgentLogin is used by tsh to fetch local user credentials.
-func SSHAgentLogin(ctx context.Context, login SSHLoginDirect) (*auth.SSHLoginResponse, error) {
+func SSHAgentLogin(ctx context.Context, login SSHLoginDirect) (*server.SSHLoginResponse, error) {
 	clt, _, err := initClient(login.ProxyAddr, login.Insecure, login.Pool)
 	if err != nil {
 		return nil, trace.Wrap(err)
@@ -493,7 +493,7 @@ func SSHAgentLogin(ctx context.Context, login SSHLoginDirect) (*auth.SSHLoginRes
 		return nil, trace.Wrap(err)
 	}
 
-	var out *auth.SSHLoginResponse
+	var out *server.SSHLoginResponse
 	err = json.Unmarshal(re.Bytes(), &out)
 	if err != nil {
 		return nil, trace.Wrap(err)
@@ -506,7 +506,7 @@ func SSHAgentLogin(ctx context.Context, login SSHLoginDirect) (*auth.SSHLoginRes
 // credentials are valid, the proxy wiil return a challenge. We then prompt the
 // user to provide 2nd factor and pass the response to the proxy. If the
 // authentication succeeds, we will get a temporary certificate back.
-func SSHAgentMFALogin(ctx context.Context, login SSHLoginMFA) (*auth.SSHLoginResponse, error) {
+func SSHAgentMFALogin(ctx context.Context, login SSHLoginMFA) (*server.SSHLoginResponse, error) {
 	clt, _, err := initClient(login.ProxyAddr, login.Insecure, login.Pool)
 	if err != nil {
 		return nil, trace.Wrap(err)
@@ -521,7 +521,7 @@ func SSHAgentMFALogin(ctx context.Context, login SSHLoginMFA) (*auth.SSHLoginRes
 		return nil, trace.Wrap(err)
 	}
 
-	var chal auth.MFAAuthenticateChallenge
+	var chal server.MFAAuthenticateChallenge
 	if err := json.Unmarshal(chalRaw.Bytes(), &chal); err != nil {
 		return nil, trace.Wrap(err)
 	}
@@ -577,7 +577,7 @@ func SSHAgentMFALogin(ctx context.Context, login SSHLoginMFA) (*auth.SSHLoginRes
 		return nil, trace.Wrap(err)
 	}
 
-	var loginResp *auth.SSHLoginResponse
+	var loginResp *server.SSHLoginResponse
 	err = json.Unmarshal(loginRespRaw.Bytes(), &loginResp)
 	if err != nil {
 		return nil, trace.Wrap(err)
@@ -587,7 +587,7 @@ func SSHAgentMFALogin(ctx context.Context, login SSHLoginMFA) (*auth.SSHLoginRes
 }
 
 // HostCredentials is used to fetch host credentials for a node.
-func HostCredentials(ctx context.Context, proxyAddr string, insecure bool, req auth.RegisterUsingTokenRequest) (*auth.PackedKeys, error) {
+func HostCredentials(ctx context.Context, proxyAddr string, insecure bool, req server.RegisterUsingTokenRequest) (*server.PackedKeys, error) {
 	clt, _, err := initClient(proxyAddr, insecure, nil)
 	if err != nil {
 		return nil, trace.Wrap(err)
@@ -598,7 +598,7 @@ func HostCredentials(ctx context.Context, proxyAddr string, insecure bool, req a
 		return nil, trace.Wrap(err)
 	}
 
-	var packedKeys *auth.PackedKeys
+	var packedKeys *server.PackedKeys
 	err = json.Unmarshal(resp.Bytes(), &packedKeys)
 	if err != nil {
 		return nil, trace.Wrap(err)

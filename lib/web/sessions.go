@@ -34,12 +34,15 @@ import (
 	"github.com/gravitational/teleport/api/client/proto"
 	"github.com/gravitational/teleport/api/types"
 	"github.com/gravitational/teleport/lib/auth"
+	authclient "github.com/gravitational/teleport/lib/auth/client"
+	"github.com/gravitational/teleport/lib/auth/local"
+	authresource "github.com/gravitational/teleport/lib/auth/resource"
+	"github.com/gravitational/teleport/lib/auth/server"
 	"github.com/gravitational/teleport/lib/auth/u2f"
 	"github.com/gravitational/teleport/lib/backend"
 	"github.com/gravitational/teleport/lib/client"
 	"github.com/gravitational/teleport/lib/reversetunnel"
 	"github.com/gravitational/teleport/lib/services"
-	"github.com/gravitational/teleport/lib/services/local"
 	"github.com/gravitational/teleport/lib/sshutils"
 	"github.com/gravitational/teleport/lib/tlsca"
 	"github.com/gravitational/teleport/lib/utils"
@@ -58,7 +61,7 @@ import (
 type SessionContext struct {
 	log    logrus.FieldLogger
 	user   string
-	clt    *auth.Client
+	clt    *authclient.Client
 	parent *sessionCache
 	// resources is persistent resource store this context is bound to.
 	// The store maintains a list of resources between session renewals
@@ -67,7 +70,7 @@ type SessionContext struct {
 	session services.WebSession
 
 	mu        sync.Mutex
-	remoteClt map[string]auth.ClientI
+	remoteClt map[string]authclient.ClientI
 }
 
 // String returns the text representation of this context
@@ -105,13 +108,13 @@ func (c *SessionContext) validateBearerToken(ctx context.Context, token string) 
 	return trace.Wrap(err)
 }
 
-func (c *SessionContext) addRemoteClient(siteName string, remoteClient auth.ClientI) {
+func (c *SessionContext) addRemoteClient(siteName string, remoteClient authclient.ClientI) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.remoteClt[siteName] = remoteClient
 }
 
-func (c *SessionContext) getRemoteClient(siteName string) (auth.ClientI, bool) {
+func (c *SessionContext) getRemoteClient(siteName string) (authclient.ClientI, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	remoteClt, ok := c.remoteClt[siteName]
@@ -119,7 +122,7 @@ func (c *SessionContext) getRemoteClient(siteName string) (auth.ClientI, bool) {
 }
 
 // GetClient returns the client connected to the auth server
-func (c *SessionContext) GetClient() (auth.ClientI, error) {
+func (c *SessionContext) GetClient() (authclient.ClientI, error) {
 	return c.clt, nil
 }
 
@@ -132,7 +135,7 @@ func (c *SessionContext) GetClientConnection() *grpc.ClientConn {
 // the requested site. If the site is local a client with the users local role
 // is returned. If the site is remote a client with the users remote role is
 // returned.
-func (c *SessionContext) GetUserClient(site reversetunnel.RemoteSite) (auth.ClientI, error) {
+func (c *SessionContext) GetUserClient(site reversetunnel.RemoteSite) (authclient.ClientI, error) {
 	// get the name of the current cluster
 	clusterName, err := c.clt.GetClusterName()
 	if err != nil {
@@ -165,7 +168,7 @@ func (c *SessionContext) GetUserClient(site reversetunnel.RemoteSite) (auth.Clie
 
 // newRemoteClient returns a client to a remote cluster with the role of
 // the logged in user.
-func (c *SessionContext) newRemoteClient(cluster reversetunnel.RemoteSite) (auth.ClientI, error) {
+func (c *SessionContext) newRemoteClient(cluster reversetunnel.RemoteSite) (authclient.ClientI, error) {
 	clt, err := c.tryRemoteTLSClient(cluster)
 	if err != nil {
 		return nil, trace.Wrap(err)
@@ -174,15 +177,15 @@ func (c *SessionContext) newRemoteClient(cluster reversetunnel.RemoteSite) (auth
 }
 
 // clusterDialer returns DialContext function using cluster's dial function
-func clusterDialer(remoteCluster reversetunnel.RemoteSite) auth.ContextDialer {
-	return auth.ContextDialerFunc(func(in context.Context, network, _ string) (net.Conn, error) {
+func clusterDialer(remoteCluster reversetunnel.RemoteSite) authclient.ContextDialer {
+	return authclient.ContextDialerFunc(func(in context.Context, network, _ string) (net.Conn, error) {
 		return remoteCluster.DialAuthServer()
 	})
 }
 
 // tryRemoteTLSClient tries creating TLS client and using it (the client may not be available
 // due to older clusters), returns client if it is working properly
-func (c *SessionContext) tryRemoteTLSClient(cluster reversetunnel.RemoteSite) (auth.ClientI, error) {
+func (c *SessionContext) tryRemoteTLSClient(cluster reversetunnel.RemoteSite) (authclient.ClientI, error) {
 	clt, err := c.newRemoteTLSClient(cluster)
 	if err != nil {
 		return nil, trace.Wrap(err)
@@ -203,7 +206,7 @@ func (c *SessionContext) ClientTLSConfig(clusterName ...string) (*tls.Config, er
 		if err != nil {
 			return nil, trace.Wrap(err)
 		}
-		certPool, err = services.CertPoolFromCertAuthorities(certAuthorities)
+		certPool, err = auth.CertPoolFromCertAuthorities(certAuthorities)
 		if err != nil {
 			return nil, trace.Wrap(err)
 		}
@@ -215,7 +218,7 @@ func (c *SessionContext) ClientTLSConfig(clusterName ...string) (*tls.Config, er
 		if err != nil {
 			return nil, trace.Wrap(err)
 		}
-		certPool, err = services.CertPool(certAuthority)
+		certPool, err = auth.CertPool(certAuthority)
 		if err != nil {
 			return nil, trace.Wrap(err)
 		}
@@ -233,12 +236,12 @@ func (c *SessionContext) ClientTLSConfig(clusterName ...string) (*tls.Config, er
 	return tlsConfig, nil
 }
 
-func (c *SessionContext) newRemoteTLSClient(cluster reversetunnel.RemoteSite) (auth.ClientI, error) {
+func (c *SessionContext) newRemoteTLSClient(cluster reversetunnel.RemoteSite) (authclient.ClientI, error) {
 	tlsConfig, err := c.ClientTLSConfig(cluster.GetName())
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
-	return auth.NewClient(apiclient.Config{
+	return authclient.New(apiclient.Config{
 		Dialer: clusterDialer(cluster),
 		Credentials: []apiclient.Credentials{
 			apiclient.LoadTLS(tlsConfig),
@@ -303,16 +306,16 @@ func (c *SessionContext) GetX509Certificate() (*x509.Certificate, error) {
 
 // GetCertRoles extracts roles from the *ssh.Certificate associated with this
 // session.
-func (c *SessionContext) GetCertRoles() (services.RoleSet, error) {
+func (c *SessionContext) GetCertRoles() (auth.RoleSet, error) {
 	cert, err := c.GetSSHCertificate()
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
-	roles, traits, err := services.ExtractFromCertificate(c.clt, cert)
+	roles, traits, err := authresource.ExtractFromCertificate(c.clt, cert)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
-	roleset, err := services.FetchRoles(roles, c.clt, traits)
+	roleset, err := auth.FetchRoles(roles, c.clt, traits)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
@@ -384,7 +387,7 @@ func (c *SessionContext) expired(ctx context.Context) bool {
 const cachedSessionLingeringThreshold = 2 * time.Minute
 
 type sessionCacheOptions struct {
-	proxyClient  auth.ClientI
+	proxyClient  authclient.ClientI
 	accessPoint  auth.ReadAccessPoint
 	servers      []utils.NetAddr
 	cipherSuites []uint16
@@ -425,7 +428,7 @@ func newSessionCache(config sessionCacheOptions) (*sessionCache, error) {
 // and holds in-memory contexts associated with each session
 type sessionCache struct {
 	log         logrus.FieldLogger
-	proxyClient auth.ClientI
+	proxyClient authclient.ClientI
 	authServers []utils.NetAddr
 	accessPoint auth.ReadAccessPoint
 	closer      *utils.CloseBroadcaster
@@ -486,10 +489,10 @@ func (s *sessionCache) clearExpiredSessions(ctx context.Context) {
 // AuthWithOTP authenticates the specified user with the given password and OTP token.
 // Returns a new web session if successful.
 func (s *sessionCache) AuthWithOTP(user, pass, otpToken string) (services.WebSession, error) {
-	return s.proxyClient.AuthenticateWebUser(auth.AuthenticateUserRequest{
+	return s.proxyClient.AuthenticateWebUser(server.AuthenticateUserRequest{
 		Username: user,
-		Pass:     &auth.PassCreds{Password: []byte(pass)},
-		OTP: &auth.OTPCreds{
+		Pass:     &server.PassCreds{Password: []byte(pass)},
+		OTP: &server.OTPCreds{
 			Password: []byte(pass),
 			Token:    otpToken,
 		},
@@ -499,33 +502,33 @@ func (s *sessionCache) AuthWithOTP(user, pass, otpToken string) (services.WebSes
 // AuthWithoutOTP authenticates the specified user with the given password.
 // Returns a new web session if successful.
 func (s *sessionCache) AuthWithoutOTP(user, pass string) (services.WebSession, error) {
-	return s.proxyClient.AuthenticateWebUser(auth.AuthenticateUserRequest{
+	return s.proxyClient.AuthenticateWebUser(server.AuthenticateUserRequest{
 		Username: user,
-		Pass: &auth.PassCreds{
+		Pass: &server.PassCreds{
 			Password: []byte(pass),
 		},
 	})
 }
 
-func (s *sessionCache) GetMFAAuthenticateChallenge(user, pass string) (*auth.MFAAuthenticateChallenge, error) {
+func (s *sessionCache) GetMFAAuthenticateChallenge(user, pass string) (*server.MFAAuthenticateChallenge, error) {
 	return s.proxyClient.GetMFAAuthenticateChallenge(user, []byte(pass))
 }
 
 func (s *sessionCache) AuthWithU2FSignResponse(user string, response *u2f.AuthenticateChallengeResponse) (services.WebSession, error) {
-	return s.proxyClient.AuthenticateWebUser(auth.AuthenticateUserRequest{
+	return s.proxyClient.AuthenticateWebUser(server.AuthenticateUserRequest{
 		Username: user,
-		U2F: &auth.U2FSignResponseCreds{
+		U2F: &server.U2FSignResponseCreds{
 			SignResponse: *response,
 		},
 	})
 }
 
 // GetCertificateWithoutOTP returns a new user certificate for the specified request.
-func (s *sessionCache) GetCertificateWithoutOTP(c client.CreateSSHCertReq) (*auth.SSHLoginResponse, error) {
-	return s.proxyClient.AuthenticateSSHUser(auth.AuthenticateSSHRequest{
-		AuthenticateUserRequest: auth.AuthenticateUserRequest{
+func (s *sessionCache) GetCertificateWithoutOTP(c client.CreateSSHCertReq) (*server.SSHLoginResponse, error) {
+	return s.proxyClient.AuthenticateSSHUser(server.AuthenticateSSHRequest{
+		AuthenticateUserRequest: server.AuthenticateUserRequest{
 			Username: c.User,
-			Pass: &auth.PassCreds{
+			Pass: &server.PassCreds{
 				Password: []byte(c.Password),
 			},
 		},
@@ -539,11 +542,11 @@ func (s *sessionCache) GetCertificateWithoutOTP(c client.CreateSSHCertReq) (*aut
 
 // GetCertificateWithOTP returns a new user certificate for the specified request.
 // The request is used with the given OTP token.
-func (s *sessionCache) GetCertificateWithOTP(c client.CreateSSHCertReq) (*auth.SSHLoginResponse, error) {
-	return s.proxyClient.AuthenticateSSHUser(auth.AuthenticateSSHRequest{
-		AuthenticateUserRequest: auth.AuthenticateUserRequest{
+func (s *sessionCache) GetCertificateWithOTP(c client.CreateSSHCertReq) (*server.SSHLoginResponse, error) {
+	return s.proxyClient.AuthenticateSSHUser(server.AuthenticateSSHRequest{
+		AuthenticateUserRequest: server.AuthenticateUserRequest{
 			Username: c.User,
-			OTP: &auth.OTPCreds{
+			OTP: &server.OTPCreds{
 				Password: []byte(c.Password),
 				Token:    c.OTPToken,
 			},
@@ -556,25 +559,25 @@ func (s *sessionCache) GetCertificateWithOTP(c client.CreateSSHCertReq) (*auth.S
 	})
 }
 
-func (s *sessionCache) GetCertificateWithMFA(c client.CreateSSHCertWithMFAReq) (*auth.SSHLoginResponse, error) {
-	authReq := auth.AuthenticateUserRequest{
+func (s *sessionCache) GetCertificateWithMFA(c client.CreateSSHCertWithMFAReq) (*server.SSHLoginResponse, error) {
+	authReq := server.AuthenticateUserRequest{
 		Username: c.User,
 	}
 	if c.Password != "" {
-		authReq.Pass = &auth.PassCreds{Password: []byte(c.Password)}
+		authReq.Pass = &server.PassCreds{Password: []byte(c.Password)}
 	}
 	if c.U2FSignResponse != nil {
-		authReq.U2F = &auth.U2FSignResponseCreds{
+		authReq.U2F = &server.U2FSignResponseCreds{
 			SignResponse: *c.U2FSignResponse,
 		}
 	}
 	if c.TOTPCode != "" {
-		authReq.OTP = &auth.OTPCreds{
+		authReq.OTP = &server.OTPCreds{
 			Password: []byte(c.Password),
 			Token:    c.TOTPCode,
 		}
 	}
-	return s.proxyClient.AuthenticateSSHUser(auth.AuthenticateSSHRequest{
+	return s.proxyClient.AuthenticateSSHUser(server.AuthenticateSSHRequest{
 		AuthenticateUserRequest: authReq,
 		PublicKey:               c.PubKey,
 		CompatibilityMode:       c.Compatibility,
@@ -593,7 +596,7 @@ func (s *sessionCache) GetUserInviteU2FRegisterRequest(token string) (*u2f.Regis
 	return s.proxyClient.GetSignupU2FRegisterRequest(token)
 }
 
-func (s *sessionCache) ValidateTrustedCluster(validateRequest *auth.ValidateTrustedClusterRequest) (*auth.ValidateTrustedClusterResponse, error) {
+func (s *sessionCache) ValidateTrustedCluster(validateRequest *server.ValidateTrustedClusterRequest) (*server.ValidateTrustedClusterResponse, error) {
 	return s.proxyClient.ValidateTrustedCluster(validateRequest)
 }
 
@@ -711,9 +714,9 @@ func (s *sessionCache) upsertSessionContext(user string) *sessionResources {
 
 // newSessionContext creates a new web session context for the specified user/session ID
 func (s *sessionCache) newSessionContext(user, sessionID string) (*SessionContext, error) {
-	session, err := s.proxyClient.AuthenticateWebUser(auth.AuthenticateUserRequest{
+	session, err := s.proxyClient.AuthenticateWebUser(server.AuthenticateUserRequest{
 		Username: user,
-		Session: &auth.SessionCreds{
+		Session: &server.SessionCreds{
 			ID: sessionID,
 		},
 	})
@@ -729,7 +732,7 @@ func (s *sessionCache) newSessionContextFromSession(session services.WebSession)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
-	userClient, err := auth.NewTLSClient(auth.ClientConfig{
+	userClient, err := authclient.NewTLSClient(authclient.Config{
 		Addrs: s.authServers,
 		TLS:   tlsConfig,
 	})
@@ -739,7 +742,7 @@ func (s *sessionCache) newSessionContextFromSession(session services.WebSession)
 
 	ctx := &SessionContext{
 		clt:       userClient,
-		remoteClt: make(map[string]auth.ClientI),
+		remoteClt: make(map[string]authclient.ClientI),
 		user:      session.GetUser(),
 		session:   session,
 		parent:    s,
@@ -769,7 +772,7 @@ func (s *sessionCache) tlsConfig(cert, privKey []byte) (*tls.Config, error) {
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
-	certPool, err := services.CertPool(ca)
+	certPool, err := auth.CertPool(ca)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}

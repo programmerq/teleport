@@ -25,7 +25,10 @@ import (
 
 	"github.com/gravitational/teleport"
 	"github.com/gravitational/teleport/api/types"
-	"github.com/gravitational/teleport/lib/auth"
+	"github.com/gravitational/teleport/lib/auth/client"
+	"github.com/gravitational/teleport/lib/auth/server"
+	"github.com/gravitational/teleport/lib/auth/test"
+	testservices "github.com/gravitational/teleport/lib/auth/test/services"
 	"github.com/gravitational/teleport/lib/defaults"
 	"github.com/gravitational/teleport/lib/modules"
 	"github.com/gravitational/teleport/lib/multiplexer"
@@ -137,14 +140,14 @@ func TestPostgresAccess(t *testing.T) {
 		},
 	}
 
-	for _, test := range tests {
-		t.Run(test.desc, func(t *testing.T) {
+	for _, tc := range tests {
+		t.Run(tc.desc, func(t *testing.T) {
 			// Create user/role with the requested permissions.
-			_, role, err := auth.CreateUserAndRole(testCtx.tlsServer.Auth(), test.user, []string{test.role})
+			_, role, err := test.CreateUserAndRole(testCtx.tlsServer.Auth(), tc.user, []string{tc.role})
 			require.NoError(t, err)
 
-			role.SetDatabaseNames(types.Allow, test.allowDbNames)
-			role.SetDatabaseUsers(types.Allow, test.allowDbUsers)
+			role.SetDatabaseNames(types.Allow, tc.allowDbNames)
+			role.SetDatabaseUsers(types.Allow, tc.allowDbUsers)
 			err = testCtx.tlsServer.Auth().UpsertRole(ctx, role)
 			require.NoError(t, err)
 
@@ -154,17 +157,17 @@ func TestPostgresAccess(t *testing.T) {
 				AuthServer: testCtx.authServer,
 				Address:    testCtx.mux.DB().Addr().String(),
 				Cluster:    testCtx.clusterName,
-				Username:   test.user,
+				Username:   tc.user,
 				RouteToDatabase: tlsca.RouteToDatabase{
 					ServiceName: "postgres-test",
 					Protocol:    defaults.ProtocolPostgres,
-					Username:    test.dbUser,
-					Database:    test.dbName,
+					Username:    tc.dbUser,
+					Database:    tc.dbName,
 				},
 			})
-			if test.err != "" {
+			if tc.err != "" {
 				require.Error(t, err)
-				require.Contains(t, err.Error(), test.err)
+				require.Contains(t, err.Error(), tc.err)
 				return
 			}
 
@@ -246,13 +249,13 @@ func TestMySQLAccess(t *testing.T) {
 		},
 	}
 
-	for _, test := range tests {
-		t.Run(test.desc, func(t *testing.T) {
+	for _, tc := range tests {
+		t.Run(tc.desc, func(t *testing.T) {
 			// Create user/role with the requested permissions.
-			_, role, err := auth.CreateUserAndRole(testCtx.tlsServer.Auth(), test.user, []string{test.role})
+			_, role, err := test.CreateUserAndRole(testCtx.tlsServer.Auth(), tc.user, []string{tc.role})
 			require.NoError(t, err)
 
-			role.SetDatabaseUsers(types.Allow, test.allowDbUsers)
+			role.SetDatabaseUsers(types.Allow, tc.allowDbUsers)
 			err = testCtx.tlsServer.Auth().UpsertRole(ctx, role)
 			require.NoError(t, err)
 
@@ -262,16 +265,16 @@ func TestMySQLAccess(t *testing.T) {
 				AuthServer: testCtx.authServer,
 				Address:    testCtx.mysqlListener.Addr().String(),
 				Cluster:    testCtx.clusterName,
-				Username:   test.user,
+				Username:   tc.user,
 				RouteToDatabase: tlsca.RouteToDatabase{
 					ServiceName: "mysql-test",
 					Protocol:    defaults.ProtocolPostgres,
-					Username:    test.dbUser,
+					Username:    tc.dbUser,
 				},
 			})
-			if test.err != "" {
+			if tc.err != "" {
 				require.Error(t, err)
-				require.Contains(t, err.Error(), test.err)
+				require.Contains(t, err.Error(), tc.err)
 				return
 			}
 
@@ -329,7 +332,7 @@ func TestDatabaseAccessDisabled(t *testing.T) {
 	dbName := "postgres"
 
 	// Create user/role with the requested permissions.
-	_, role, err := auth.CreateUserAndRole(testCtx.tlsServer.Auth(), userName, []string{roleName})
+	_, role, err := test.CreateUserAndRole(testCtx.tlsServer.Auth(), userName, []string{roleName})
 	require.NoError(t, err)
 
 	role.SetDatabaseNames(types.Allow, []string{types.Wildcard})
@@ -357,9 +360,9 @@ func TestDatabaseAccessDisabled(t *testing.T) {
 
 type testContext struct {
 	clusterName      string
-	tlsServer        *auth.TestTLSServer
-	authServer       *auth.Server
-	authClient       *auth.Client
+	tlsServer        *testservices.TLSServer
+	authServer       *server.Server
+	authClient       *client.Client
 	postgresServer   *postgres.TestServer
 	mysqlServer      *mysql.TestServer
 	proxyServer      *ProxyServer
@@ -408,13 +411,13 @@ func setupTestContext(ctx context.Context, t *testing.T) *testContext {
 	require.NoError(t, err)
 
 	// Create and start test auth server.
-	authServer, err := auth.NewTestAuthServer(auth.TestAuthServerConfig{
+	authServer, err := testservices.NewAuthServer(testservices.AuthServerConfig{
 		Clock:       clockwork.NewFakeClockAt(time.Now()),
 		ClusterName: clusterName,
 		Dir:         t.TempDir(),
 	})
 	require.NoError(t, err)
-	tlsServer, err := authServer.NewTestTLSServer()
+	tlsServer, err := authServer.NewTLSServer()
 	require.NoError(t, err)
 
 	// Use sync recording to not involve the uploader.
@@ -425,19 +428,19 @@ func setupTestContext(ctx context.Context, t *testing.T) *testContext {
 	require.NoError(t, err)
 
 	// Auth client/authorizer for database service.
-	dbAuthClient, err := tlsServer.NewClient(auth.TestServerID(teleport.RoleDatabase, hostID))
+	dbAuthClient, err := tlsServer.NewClient(testservices.ServerID(teleport.RoleDatabase, hostID))
 	require.NoError(t, err)
-	dbAuthorizer, err := auth.NewAuthorizer(clusterName, dbAuthClient, dbAuthClient, dbAuthClient)
+	dbAuthorizer, err := server.NewAuthorizer(clusterName, dbAuthClient, dbAuthClient, dbAuthClient)
 	require.NoError(t, err)
 
 	// Auth client/authorizer for database proxy.
-	proxyAuthClient, err := tlsServer.NewClient(auth.TestBuiltin(teleport.RoleProxy))
+	proxyAuthClient, err := tlsServer.NewClient(testservices.Builtin(teleport.RoleProxy))
 	require.NoError(t, err)
-	proxyAuthorizer, err := auth.NewAuthorizer(clusterName, proxyAuthClient, proxyAuthClient, proxyAuthClient)
+	proxyAuthorizer, err := server.NewAuthorizer(clusterName, proxyAuthClient, proxyAuthClient, proxyAuthClient)
 	require.NoError(t, err)
 
 	// TLS config for database proxy and database service.
-	serverIdentity, err := auth.NewServerIdentity(authServer.AuthServer, hostID, teleport.RoleDatabase)
+	serverIdentity, err := testservices.NewServerIdentity(authServer.AuthServer, hostID, teleport.RoleDatabase)
 	require.NoError(t, err)
 	tlsConfig, err := serverIdentity.TLSConfig(nil)
 	require.NoError(t, err)

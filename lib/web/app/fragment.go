@@ -23,7 +23,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/gravitational/teleport/lib/auth"
+	"github.com/gravitational/teleport/lib/auth/server"
 	"github.com/gravitational/teleport/lib/httplib"
 	"github.com/gravitational/teleport/lib/services"
 	"github.com/gravitational/teleport/lib/utils"
@@ -46,7 +46,7 @@ func (h *Handler) handleFragment(w http.ResponseWriter, r *http.Request, p httpr
 		// If the state query parameter is not set, generate a new state token,
 		// store it in a cookie and redirect back to the app launcher.
 		if r.URL.Query().Get("state") == "" {
-			stateToken, err := utils.CryptoRandomHex(auth.TokenLenBytes)
+			stateToken, err := utils.CryptoRandomHex(server.TokenLenBytes)
 			if err != nil {
 				h.log.WithError(err).Debugf("Failed to generate and encode random numbers.")
 				return trace.AccessDenied("access denied")
@@ -60,7 +60,7 @@ func (h *Handler) handleFragment(w http.ResponseWriter, r *http.Request, p httpr
 			return h.redirectToLauncher(w, r, p)
 		}
 
-		nonce, err := utils.CryptoRandomHex(auth.TokenLenBytes)
+		nonce, err := utils.CryptoRandomHex(server.TokenLenBytes)
 		if err != nil {
 			h.log.WithError(err).Debugf("Failed to generate and encode random numbers.")
 			return trace.AccessDenied("access denied")

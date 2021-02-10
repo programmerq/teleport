@@ -31,9 +31,9 @@ import (
 
 	"github.com/gravitational/teleport"
 	"github.com/gravitational/teleport/lib/auth"
+	"github.com/gravitational/teleport/lib/auth/server"
 	"github.com/gravitational/teleport/lib/auth/testauthority"
 	"github.com/gravitational/teleport/lib/defaults"
-	"github.com/gravitational/teleport/lib/services"
 	"github.com/gravitational/teleport/lib/sshutils"
 	"github.com/gravitational/teleport/lib/tlsca"
 	"github.com/gravitational/teleport/lib/utils"
@@ -233,7 +233,7 @@ func TestProxySSHConfig(t *testing.T) {
 	hostPriv, hostPub, err := s.keygen.GenerateKeyPair("")
 	require.NoError(t, err)
 
-	hostCert, err := s.keygen.GenerateHostCert(services.HostCertParams{
+	hostCert, err := s.keygen.GenerateHostCert(auth.HostCertParams{
 		PrivateCASigningKey: CAPriv,
 		CASigningAlg:        defaults.CASignatureAlgorithm,
 		PublicHostKey:       hostPub,
@@ -312,7 +312,7 @@ type keyStoreTest struct {
 	store     *FSLocalKeyStore
 	keygen    *testauthority.Keygen
 	tlsCA     *tlsca.CertAuthority
-	tlsCACert auth.TrustedCerts
+	tlsCACert server.TrustedCerts
 }
 
 func (s *keyStoreTest) addKey(host, user string, key *Key) error {
@@ -320,7 +320,7 @@ func (s *keyStoreTest) addKey(host, user string, key *Key) error {
 		return err
 	}
 	// Also write the trusted CA certs for the host.
-	return s.store.SaveCerts(host, []auth.TrustedCerts{s.tlsCACert})
+	return s.store.SaveCerts(host, []server.TrustedCerts{s.tlsCACert})
 }
 
 // makeSignedKey helper returns all 3 components of a user key (signed by CAPriv key)
@@ -354,7 +354,7 @@ func (s *keyStoreTest) makeSignedKey(t *testing.T, makeExpired bool) *Key {
 	})
 	require.NoError(t, err)
 
-	cert, err = s.keygen.GenerateUserCert(services.UserCertParams{
+	cert, err = s.keygen.GenerateUserCert(auth.UserCertParams{
 		PrivateCASigningKey:   CAPriv,
 		CASigningAlg:          defaults.CASignatureAlgorithm,
 		PublicUserKey:         pub,
@@ -370,29 +370,29 @@ func (s *keyStoreTest) makeSignedKey(t *testing.T, makeExpired bool) *Key {
 		Pub:         pub,
 		Cert:        cert,
 		TLSCert:     tlsCert,
-		TrustedCA:   []auth.TrustedCerts{s.tlsCACert},
+		TrustedCA:   []server.TrustedCerts{s.tlsCACert},
 		DBTLSCerts:  map[string][]byte{"example-db": tlsCert},
 		ClusterName: "root",
 	}
 }
 
-func newSelfSignedCA(privateKey []byte) (*tlsca.CertAuthority, auth.TrustedCerts, error) {
+func newSelfSignedCA(privateKey []byte) (*tlsca.CertAuthority, server.TrustedCerts, error) {
 	rsaKey, err := ssh.ParseRawPrivateKey(privateKey)
 	if err != nil {
-		return nil, auth.TrustedCerts{}, trace.Wrap(err)
+		return nil, server.TrustedCerts{}, trace.Wrap(err)
 	}
 	key, cert, err := tlsca.GenerateSelfSignedCAWithPrivateKey(rsaKey.(*rsa.PrivateKey), pkix.Name{
 		CommonName:   "localhost",
 		Organization: []string{"localhost"},
 	}, nil, defaults.CATTL)
 	if err != nil {
-		return nil, auth.TrustedCerts{}, trace.Wrap(err)
+		return nil, server.TrustedCerts{}, trace.Wrap(err)
 	}
 	ca, err := tlsca.FromKeys(cert, key)
 	if err != nil {
-		return nil, auth.TrustedCerts{}, trace.Wrap(err)
+		return nil, server.TrustedCerts{}, trace.Wrap(err)
 	}
-	return ca, auth.TrustedCerts{TLSCertificates: [][]byte{cert}}, nil
+	return ca, server.TrustedCerts{TLSCertificates: [][]byte{cert}}, nil
 }
 
 func newTest(t *testing.T) (keyStoreTest, func()) {

@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/gravitational/teleport/lib/auth"
+	"github.com/gravitational/teleport/lib/auth/server"
 	"github.com/gravitational/teleport/lib/client"
 	"github.com/gravitational/teleport/lib/kube/kubeconfig"
 	"github.com/stretchr/testify/require"
@@ -19,7 +19,7 @@ func TestWrite(t *testing.T) {
 		Priv:        []byte("priv"),
 		Pub:         []byte("pub"),
 		ClusterName: "foo",
-		TrustedCA: []auth.TrustedCerts{{
+		TrustedCA: []server.TrustedCerts{{
 			TLSCertificates: [][]byte{[]byte("ca-cert")},
 		}},
 	}
@@ -68,7 +68,7 @@ func TestKubeconfigOverwrite(t *testing.T) {
 		Priv:        []byte("priv"),
 		Pub:         []byte("pub"),
 		ClusterName: "foo",
-		TrustedCA: []auth.TrustedCerts{{
+		TrustedCA: []server.TrustedCerts{{
 			TLSCertificates: [][]byte{[]byte("ca-cert")},
 		}},
 	}
