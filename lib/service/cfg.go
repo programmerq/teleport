@@ -559,12 +559,22 @@ type Database struct {
 	CACert []byte
 	// AWS contains AWS specific settings for RDS/Aurora.
 	AWS DatabaseAWS
+	// GCP contains GCP specific settings for Cloud SQL.
+	GCP DatabaseGCP
 }
 
 // DatabaseAWS contains AWS specific settings for RDS/Aurora databases.
 type DatabaseAWS struct {
 	// Region is the cloud region database is running in when using AWS RDS.
 	Region string
+}
+
+// DatabaseGCP contains GCP specific settings for Cloud SQL databases.
+type DatabaseGCP struct {
+	// ProjectID is the GCP project ID where the database is deployed.
+	ProjectID string
+	// InstanceID is the Cloud SQL instance ID.
+	InstanceID string
 }
 
 // Check validates the database proxy configuration.
@@ -590,6 +600,28 @@ func (d *Database) Check() error {
 		if _, err := tlsca.ParseCertificatePEM(d.CACert); err != nil {
 			return trace.BadParameter("provided database %q CA doesn't appear to be a valid x509 certificate: %v",
 				d.Name, err)
+		}
+	}
+	// Validate Cloud SQL specific configuration.
+	switch {
+	case d.GCP.ProjectID != "" && d.GCP.InstanceID == "":
+		return trace.BadParameter("missing Cloud SQL instance ID for database %q", d.Name)
+	case d.GCP.ProjectID == "" && d.GCP.InstanceID != "":
+		return trace.BadParameter("missing Cloud SQL project ID for database %q", d.Name)
+	case d.GCP.ProjectID != "" && d.GCP.InstanceID != "":
+		// Only Postgres Cloud SQL instances currently support IAM authentication.
+		// It's a relatively new feature so we'll be able to enable it once it
+		// expands to MySQL as well:
+		//   https://cloud.google.com/sql/docs/postgres/authentication
+		if d.Protocol != defaults.ProtocolPostgres {
+			return trace.BadParameter("Cloud SQL IAM authentication is currently supported only for PostgreSQL databases")
+		}
+		// TODO(r0mant): See if we can download it automatically similar to RDS
+		// but at a first glance it doesn't seem to be possible since in Cloud
+		// SQL each instance has its own CA and there doesn't appear to be an
+		// API for that.
+		if len(d.CACert) == 0 {
+			return trace.BadParameter("missing Cloud SQL instance root certificate for database %q", d.Name)
 		}
 	}
 	return nil

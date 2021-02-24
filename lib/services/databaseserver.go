@@ -32,12 +32,20 @@ const DatabaseServerSpecV3Schema = `{
 	  "description": {"type": "string"},
 	  "protocol": {"type": "string"},
 	  "uri": {"type": "string"},
-	  "ca_cert": {"type": "string"},
+	  "ca_cert_file": {"type": "string"},
 	  "aws": {
 		"type": "object",
 		"additionalProperties": false,
 		"properties": {
 		  "region": {"type": "string"}
+		}
+	  },
+	  "gcp": {
+		"type": "object",
+		"additionalProperties": false,
+		"properties": {
+		  "project_id": {"type": "string"},
+		  "instance_id": {"type": "string"}
 		}
 	  },
 	  "version": {"type": "string"},

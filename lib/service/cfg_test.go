@@ -201,6 +201,73 @@ func TestCheckDatabase(t *testing.T) {
 			},
 			outErr: true,
 		},
+		{
+			desc: "GCP valid configuration",
+			inDatabase: Database{
+				Name:     "example",
+				Protocol: defaults.ProtocolPostgres,
+				URI:      "localhost:5432",
+				GCP: DatabaseGCP{
+					ProjectID:  "project-1",
+					InstanceID: "instance-1",
+				},
+				CACert: []byte(certPEM),
+			},
+			outErr: false,
+		},
+		{
+			desc: "GCP project ID specified without instance ID",
+			inDatabase: Database{
+				Name:     "example",
+				Protocol: defaults.ProtocolPostgres,
+				URI:      "localhost:5432",
+				GCP: DatabaseGCP{
+					ProjectID: "project-1",
+				},
+				CACert: []byte(certPEM),
+			},
+			outErr: true,
+		},
+		{
+			desc: "GCP instance ID specified without project ID",
+			inDatabase: Database{
+				Name:     "example",
+				Protocol: defaults.ProtocolPostgres,
+				URI:      "localhost:5432",
+				GCP: DatabaseGCP{
+					InstanceID: "instance-1",
+				},
+				CACert: []byte(certPEM),
+			},
+			outErr: true,
+		},
+		{
+			desc: "GCP root cert missing",
+			inDatabase: Database{
+				Name:     "example",
+				Protocol: defaults.ProtocolPostgres,
+				URI:      "localhost:5432",
+				GCP: DatabaseGCP{
+					ProjectID:  "project-1",
+					InstanceID: "instance-1",
+				},
+			},
+			outErr: true,
+		},
+		{
+			desc: "GCP unsupported for MySQL",
+			inDatabase: Database{
+				Name:     "example",
+				Protocol: defaults.ProtocolMySQL,
+				URI:      "localhost:3306",
+				GCP: DatabaseGCP{
+					ProjectID:  "project-1",
+					InstanceID: "instance-1",
+				},
+				CACert: []byte(certPEM),
+			},
+			outErr: true,
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.desc, func(t *testing.T) {
@@ -213,3 +280,17 @@ func TestCheckDatabase(t *testing.T) {
 		})
 	}
 }
+
+// certPEM is used in tests that require a x509 cert.
+const certPEM = `-----BEGIN CERTIFICATE-----
+MIIB0zCCAX2gAwIBAgIJAI/M7BYjwB+uMA0GCSqGSIb3DQEBBQUAMEUxCzAJBgNV
+BAYTAkFVMRMwEQYDVQQIDApTb21lLVN0YXRlMSEwHwYDVQQKDBhJbnRlcm5ldCBX
+aWRnaXRzIFB0eSBMdGQwHhcNMTIwOTEyMjE1MjAyWhcNMTUwOTEyMjE1MjAyWjBF
+MQswCQYDVQQGEwJBVTETMBEGA1UECAwKU29tZS1TdGF0ZTEhMB8GA1UECgwYSW50
+ZXJuZXQgV2lkZ2l0cyBQdHkgTHRkMFwwDQYJKoZIhvcNAQEBBQADSwAwSAJBANLJ
+hPHhITqQbPklG3ibCVxwGMRfp/v4XqhfdQHdcVfHap6NQ5Wok/4xIA+ui35/MmNa
+rtNuC+BdZ1tMuVCPFZcCAwEAAaNQME4wHQYDVR0OBBYEFJvKs8RfJaXTH08W+SGv
+zQyKn0H8MB8GA1UdIwQYMBaAFJvKs8RfJaXTH08W+SGvzQyKn0H8MAwGA1UdEwQF
+MAMBAf8wDQYJKoZIhvcNAQEFBQADQQBJlffJHybjDGxRMqaRmDhX0+6v02TUKZsW
+r5QuVbpQhH6u+0UgcW0jp9QwpxoPTLTWGXEWBBBurxFwiCBhkQ+V
+-----END CERTIFICATE-----`
