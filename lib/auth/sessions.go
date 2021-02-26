@@ -23,10 +23,14 @@ import (
 	"github.com/gravitational/teleport"
 	"github.com/gravitational/teleport/api/types"
 	"github.com/gravitational/teleport/api/types/wrappers"
+	"github.com/gravitational/teleport/lib/backend"
 	"github.com/gravitational/teleport/lib/jwt"
 	"github.com/gravitational/teleport/lib/modules"
 	"github.com/gravitational/teleport/lib/services"
+	"github.com/gravitational/teleport/lib/services/local"
+	"github.com/gravitational/teleport/lib/tlsca"
 	"github.com/gravitational/teleport/lib/utils"
+	"github.com/jonboulle/clockwork"
 
 	"github.com/gravitational/trace"
 
@@ -100,6 +104,60 @@ func (s *Server) CreateAppSession(ctx context.Context, req services.CreateAppSes
 	log.Debugf("Generated application web session for %v with TTL %v.", req.Username, ttl)
 
 	return session, nil
+}
+
+// UpsertAppSession saves the provided app session for the specified user.
+func (s *Server) UpsertAppSession(ctx context.Context, session types.WebSession, identity tlsca.Identity, checker services.AccessChecker) error {
+	// Don't let the app session go longer than the identity expiration.
+	ttl := checker.AdjustSessionTTL(identity.Expires.Sub(s.clock.Now()))
+	session.SetExpiryTime(s.clock.Now().Add(ttl))
+	if err := s.Identity.UpsertAppSession(ctx, session); err != nil {
+		return trace.Wrap(err)
+	}
+	return nil
+}
+
+// WaitForAppSession will block until the requested application session shows up in the
+// cache or a timeout occurs.
+func WaitForAppSession(ctx context.Context, sessionID, user string, ap AccessPoint) error {
+	_, err := ap.GetAppSession(ctx, services.GetAppSessionRequest{SessionID: sessionID})
+	if err == nil {
+		return nil
+	}
+	logger := log.WithField("session", sessionID)
+	if !trace.IsNotFound(err) {
+		logger.WithError(err).Debug("Failed to query application session.")
+	}
+	// Establish a watch on application session.
+	watcher, err := ap.NewWatcher(ctx, services.Watch{
+		Name: teleport.ComponentAppProxy,
+		Kinds: []services.WatchKind{
+			{
+				Kind:    services.KindWebSession,
+				SubKind: services.KindAppSession,
+				Filter:  (&types.WebSessionFilter{User: user}).IntoMap(),
+			},
+		},
+		MetricComponent: teleport.ComponentAppProxy,
+	})
+	if err != nil {
+		return trace.Wrap(err)
+	}
+	defer watcher.Close()
+	matchEvent := func(event services.Event) (services.Resource, error) {
+		if event.Type == backend.OpPut &&
+			event.Resource.GetKind() == services.KindWebSession &&
+			event.Resource.GetSubKind() == services.KindAppSession &&
+			event.Resource.GetName() == sessionID {
+			return event.Resource, nil
+		}
+		return nil, trace.CompareFailed("no match")
+	}
+	_, err = local.WaitForEvent(ctx, watcher, local.EventMatcherFunc(matchEvent), clockwork.NewRealClock())
+	if err != nil {
+		logger.WithError(err).Warn("Failed to wait for application session.")
+	}
+	return trace.Wrap(err)
 }
 
 // generateAppToken generates an JWT token that will be passed along with every

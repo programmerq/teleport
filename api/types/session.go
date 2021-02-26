@@ -534,3 +534,38 @@ func (r *DeleteWebTokenRequest) Check() error {
 	}
 	return nil
 }
+
+// IntoMap makes this filter into a map.
+func (f *WebSessionFilter) IntoMap() map[string]string {
+	m := make(map[string]string)
+	if f.User != "" {
+		m[keyUser] = f.User
+	}
+	return m
+}
+
+// FromMap converts provided map into this filter.
+func (f *WebSessionFilter) FromMap(m map[string]string) error {
+	for key, val := range m {
+		switch key {
+		case keyUser:
+			f.User = val
+		default:
+			return trace.BadParameter("unknown filter key %s", key)
+		}
+	}
+	return nil
+}
+
+// Match checks if a given web session matches this filter.
+func (f *WebSessionFilter) Match(session WebSession) bool {
+	if f.User != "" && session.GetUser() != f.User {
+		return false
+	}
+	return true
+}
+
+// Equals compares two filters.
+func (f *WebSessionFilter) Equals(o WebSessionFilter) bool {
+	return f.User == o.User
+}
