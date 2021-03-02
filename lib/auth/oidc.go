@@ -827,21 +827,18 @@ func (a *Server) getClaims(oidcClient *oidc.Client, connector services.OIDCConne
 		return nil, trace.Wrap(err)
 	}
 
-	// for GSuite users, fetch extra data from the proprietary google API
-	// only if scope includes admin groups readonly scope
-	if connector.GetIssuerURL() == teleport.GSuiteIssuerURL {
+	// For GSuite users, fetch extra data from the proprietary google API.
+	//
+	// If google_service_account_uri is not set, we assume that this is a
+	// non-GSuite Google OIDC provider using the same issuer URL as GSuite
+	// (e.g. https://developers.google.com/identity/protocols/oauth2/openid-connect).
+	if connector.GetIssuerURL() == teleport.GSuiteIssuerURL && connector.GetGoogleServiceAccountURI() != "" {
 		email, _, err := claims.StringClaim("email")
 		if err != nil {
 			return nil, trace.Wrap(err)
 		}
 
-		serviceAccountURI := connector.GetGoogleServiceAccountURI()
-		if serviceAccountURI == "" {
-			return nil, trace.NotFound(
-				"the gsuite connector requires google_service_account_uri parameter to be specified and pointing to a valid google service account file with credentials, read this article for more details https://developers.google.com/admin-sdk/directory/v1/guides/delegation")
-		}
-
-		uri, err := utils.ParseSessionsURI(serviceAccountURI)
+		uri, err := utils.ParseSessionsURI(connector.GetGoogleServiceAccountURI())
 		if err != nil {
 			return nil, trace.BadParameter("failed to parse google_service_account_uri: %v", err)
 		}
