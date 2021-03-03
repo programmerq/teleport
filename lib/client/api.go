@@ -271,9 +271,12 @@ type Config struct {
 	// (not currently implemented), or set to 'none' to suppress browser opening entirely.
 	Browser string
 
-	// UseLocalSSHAgent will write user certificates to the local ssh-agent (or
-	// similar) socket at $SSH_AUTH_SOCK.
-	UseLocalSSHAgent bool
+	// AddKeysToAgent specifies how the client handles keys.
+	//	auto - will attempt to add keys to agent if the agent supports it
+	//	only - attempt to load keys into agent but don't write them to disk
+	//	on - attempt to load keys into agent
+	//	off - do not attempt to load keys into agent
+	AddKeysToAgent string
 
 	// EnableEscapeSequences will scan Stdin for SSH escape sequences during
 	// command/shell execution. This also requires Stdin to be an interactive
@@ -298,7 +301,7 @@ func MakeDefaultConfig() *Config {
 		Stdout:                os.Stdout,
 		Stderr:                os.Stderr,
 		Stdin:                 os.Stdin,
-		UseLocalSSHAgent:      true,
+		AddKeysToAgent:        "auto",
 		EnableEscapeSequences: true,
 	}
 }
@@ -945,7 +948,7 @@ func NewClient(c *Config) (tc *TeleportClient, err error) {
 	} else {
 		// initialize the local agent (auth agent which uses local SSH keys signed by the CA):
 		webProxyHost, _ := tc.WebProxyHostPort()
-		tc.localAgent, err = NewLocalAgent(c.KeysDir, webProxyHost, c.Username, c.UseLocalSSHAgent)
+		tc.localAgent, err = NewLocalAgent(c.KeysDir, webProxyHost, c.Username, c.AddKeysToAgent)
 		if err != nil {
 			return nil, trace.Wrap(err)
 		}

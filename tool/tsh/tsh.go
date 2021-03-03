@@ -196,6 +196,9 @@ type CLIConf struct {
 	// connect to the local ssh-agent (or similar) socket at $SSH_AUTH_SOCK.
 	UseLocalSSHAgent bool
 
+	// AddKeysToAgent specifies the behaviour of how certs are handled.
+	AddKeysToAgent string
+
 	// EnableEscapeSequences will scan stdin for SSH escape sequences during
 	// command/shell execution. This also requires stdin to be an interactive
 	// terminal.
@@ -243,6 +246,7 @@ const (
 	// cluster. All new code should use TELEPORT_CLUSTER instead.
 	siteEnvVar             = "TELEPORT_SITE"
 	userEnvVar             = "TELEPORT_USER"
+	addKeysToAgentEnvVar   = "TELEPORT_ADD_KEYS_TO_AGENT"
 	useLocalSSHAgentEnvVar = "TELEPORT_USE_LOCAL_SSH_AGENT"
 
 	clusterHelp = "Specify the cluster to connect"
@@ -279,7 +283,9 @@ func Run(args []string, opts ...cliOption) error {
 	app.Flag("gops-addr", "Specify gops addr to listen on").Hidden().StringVar(&cf.GopsAddr)
 	app.Flag("skip-version-check", "Skip version checking between server and client.").BoolVar(&cf.SkipVersionCheck)
 	app.Flag("debug", "Verbose logging to stdout").Short('d').BoolVar(&cf.Debug)
+	app.Flag("add-keys-to-agent", "Controls how keys are handled. Valid values are yes, no, auto or only").Short('k').Envar(addKeysToAgentEnvVar).Default("auto").StringVar(&cf.AddKeysToAgent)
 	app.Flag("use-local-ssh-agent", fmt.Sprintf("Load generated SSH certificates into the local ssh-agent (specified via $SSH_AUTH_SOCK). You can also set %v environment variable. Default is true.", useLocalSSHAgentEnvVar)).
+		Hidden().
 		Envar(useLocalSSHAgentEnvVar).
 		Default("true").
 		BoolVar(&cf.UseLocalSSHAgent)
@@ -458,6 +464,20 @@ func Run(args []string, opts ...cliOption) error {
 	cf.executablePath, err = os.Executable()
 	if err != nil {
 		return trace.Wrap(err)
+	}
+
+	// parameter must be yes, no, auto or only
+	switch cf.AddKeysToAgent {
+	case "yes":
+		break
+	case "no":
+		break
+	case "auto":
+		break
+	case "only":
+		break
+	default:
+		return trace.BadParameter("valid values for parameter add-keys-to-agent are yes, no, auto or only, got %s", cf.AddKeysToAgent)
 	}
 
 	// Read in cluster flag from CLI or environment.
@@ -1634,11 +1654,10 @@ func makeClient(cf *CLIConf, useProfileLogin bool) (*client.TeleportClient, erro
 	// (not currently implemented) or set to 'none' to suppress browser opening entirely.
 	c.Browser = cf.Browser
 
-	// Do not write SSH certs into the local ssh-agent if user requested it.
-	//
-	// This is specifically for gpg-agent, which doesn't support SSH
-	// certificates (https://dev.gnupg.org/T1756)
-	c.UseLocalSSHAgent = cf.UseLocalSSHAgent
+	c.AddKeysToAgent = cf.AddKeysToAgent
+	if cf.UseLocalSSHAgent == false {
+		c.AddKeysToAgent = "off"
+	}
 
 	c.EnableEscapeSequences = cf.EnableEscapeSequences
 

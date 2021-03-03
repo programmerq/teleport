@@ -64,6 +64,9 @@ type LocalKeyAgent struct {
 
 	// proxyHost is the proxy for the cluster that his key agent holds keys for.
 	proxyHost string
+
+	// saveKeys dictates whether the agent will save added keys to disk or not.
+	saveKeys bool
 }
 
 // NewKeyStoreCertChecker returns a new certificate checker
@@ -100,9 +103,14 @@ func NewKeyStoreCertChecker(keyStore LocalKeyStore) ssh.HostKeyCallback {
 	}
 }
 
+func agentSupportsSSHCertificates() bool {
+	agent := os.Getenv(teleport.SSHAuthSock)
+	return !strings.Contains(agent, "gpg-agent")
+}
+
 // NewLocalAgent reads all Teleport certificates from disk (using FSLocalKeyStore),
 // creates a LocalKeyAgent, loads all certificates into it, and returns the agent.
-func NewLocalAgent(keyDir, proxyHost, username string, useLocalSSHAgent bool) (a *LocalKeyAgent, err error) {
+func NewLocalAgent(keyDir, proxyHost, username string, addKeysToAgent string) (a *LocalKeyAgent, err error) {
 	keystore, err := NewFSLocalKeyStore(keyDir)
 	if err != nil {
 		return nil, trace.Wrap(err)
@@ -117,9 +125,10 @@ func NewLocalAgent(keyDir, proxyHost, username string, useLocalSSHAgent bool) (a
 		noHosts:   make(map[string]bool),
 		username:  username,
 		proxyHost: proxyHost,
+		saveKeys:  addKeysToAgent != "only",
 	}
 
-	if useLocalSSHAgent {
+	if (addKeysToAgent == "auto" || agentSupportsSSHCertificates()) || addKeysToAgent == "only" || addKeysToAgent == "yes" {
 		a.sshAgent = connectToSSHAgent()
 	} else {
 		log.Debug("Skipping connection to the local ssh-agent.")
@@ -403,10 +412,12 @@ func (a *LocalKeyAgent) defaultHostPromptFunc(host string, key ssh.PublicKey, wr
 // AddKey activates a new signed session key by adding it into the keystore and also
 // by loading it into the SSH agent
 func (a *LocalKeyAgent) AddKey(key *Key) (*agent.AddedKey, error) {
-	// save it to disk (usually into ~/.tsh)
-	err := a.keyStore.AddKey(a.proxyHost, a.username, key)
-	if err != nil {
-		return nil, trace.Wrap(err)
+	if a.saveKeys {
+		// save it to disk (usually into ~/.tsh)
+		err := a.keyStore.AddKey(a.proxyHost, a.username, key)
+		if err != nil {
+			return nil, trace.Wrap(err)
+		}
 	}
 
 	// load key into the teleport agent and system agent
