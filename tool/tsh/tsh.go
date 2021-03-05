@@ -283,7 +283,7 @@ func Run(args []string, opts ...cliOption) error {
 	app.Flag("gops-addr", "Specify gops addr to listen on").Hidden().StringVar(&cf.GopsAddr)
 	app.Flag("skip-version-check", "Skip version checking between server and client.").BoolVar(&cf.SkipVersionCheck)
 	app.Flag("debug", "Verbose logging to stdout").Short('d').BoolVar(&cf.Debug)
-	app.Flag("add-keys-to-agent", "Controls how keys are handled. Valid values are yes, no, auto or only").Short('k').Envar(addKeysToAgentEnvVar).Default("auto").StringVar(&cf.AddKeysToAgent)
+	app.Flag("add-keys-to-agent", "Controls how keys are handled. Valid values are yes, no, auto or only").Short('k').Envar(addKeysToAgentEnvVar).Default(client.DefaultAddKeysToAgent).StringVar(&cf.AddKeysToAgent)
 	app.Flag("use-local-ssh-agent", fmt.Sprintf("Load generated SSH certificates into the local ssh-agent (specified via $SSH_AUTH_SOCK). You can also set %v environment variable. Default is true.", useLocalSSHAgentEnvVar)).
 		Hidden().
 		Envar(useLocalSSHAgentEnvVar).

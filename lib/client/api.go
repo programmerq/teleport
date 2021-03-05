@@ -69,7 +69,8 @@ import (
 
 const (
 	// ProfileDir is a directory location where tsh profiles (and session keys) are stored
-	ProfileDir = ".tsh"
+	ProfileDir            = ".tsh"
+	DefaultAddKeysToAgent = "auto"
 )
 
 var log = logrus.WithFields(logrus.Fields{
@@ -301,7 +302,7 @@ func MakeDefaultConfig() *Config {
 		Stdout:                os.Stdout,
 		Stderr:                os.Stderr,
 		Stdin:                 os.Stdin,
-		AddKeysToAgent:        "auto",
+		AddKeysToAgent:        DefaultAddKeysToAgent,
 		EnableEscapeSequences: true,
 	}
 }
