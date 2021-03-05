@@ -109,21 +109,22 @@ func agentSupportsSSHCertificates() bool {
 }
 
 func shouldAddKeysToAgent(addKeysToAgent string) bool {
-	return (addKeysToAgent == "auto" || agentSupportsSSHCertificates()) || addKeysToAgent == "only" || addKeysToAgent == "yes"
+	return (addKeysToAgent == AddKeysToAgentAuto && agentSupportsSSHCertificates()) || addKeysToAgent == AddKeysToAgentOnly || addKeysToAgent == AddKeysToAgentYes
 }
 
 // NewLocalAgent reads all Teleport certificates from disk (using FSLocalKeyStore),
 // creates a LocalKeyAgent, loads all certificates into it, and returns the agent.
 func NewLocalAgent(keyDir, proxyHost, username string, addKeysToAgent string) (a *LocalKeyAgent, err error) {
-	saveNewKeysToDisk := addKeysToAgent != "only"
+	saveNewKeysToDisk := addKeysToAgent != AddKeysToAgentOnly
 	var keystore LocalKeyStore
-	keystore, err = NewFSLocalKeyStore(keyDir)
-	if err != nil {
-		return nil, trace.Wrap(err)
-	}
 
-	if !saveNewKeysToDisk {
-		keystore = NewMemLocalKeyStore(keystore, false)
+	if saveNewKeysToDisk {
+		keystore, err = NewFSLocalKeyStore(keyDir)
+		if err != nil {
+			return nil, trace.Wrap(err)
+		}
+	} else {
+		keystore = NewMemLocalKeyStore(keyDir)
 	}
 
 	a = &LocalKeyAgent{

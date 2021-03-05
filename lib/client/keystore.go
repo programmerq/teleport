@@ -660,37 +660,29 @@ type usernameProxyPair struct {
 	proxy    string
 }
 
-// MemLocalKeyStore is a wrapper around any LocalKeyStore
-// with the ability to keep newly added keys in memory instead
-// of writing them to the underlying key store.
+// MemLocalKeyStore is an in-memory keystore implementation.
 type MemLocalKeyStore struct {
-	LocalKeyStore
-	saveNewKeys bool
-	inMem       map[usernameProxyPair]*Key
+	dirPath string
+	inMem   map[usernameProxyPair]*Key
 }
 
 // NewMemLocalKeyStore initializes a new wrapping key store over an existing underlying one.
-func NewMemLocalKeyStore(underlyingKeyStore LocalKeyStore, saveNewKeys bool) *MemLocalKeyStore {
+func NewMemLocalKeyStore(dirpath string) *MemLocalKeyStore {
 	inMem := make(map[usernameProxyPair]*Key)
-	return &MemLocalKeyStore{LocalKeyStore: underlyingKeyStore, saveNewKeys: saveNewKeys, inMem: inMem}
+	return &MemLocalKeyStore{dirpath, inMem}
 }
 
 // AddKey writes a key to the underlying key store if MemLocalKeyStore was initialized with saveNewKeys set to true.
 func (s *MemLocalKeyStore) AddKey(proxy string, username string, key *Key) error {
-	if s.saveNewKeys {
-		return s.LocalKeyStore.AddKey(proxy, username, key)
-	} else {
-		s.inMem[usernameProxyPair{username, proxy}] = key
-	}
-
+	s.inMem[usernameProxyPair{username, proxy}] = key
 	return nil
 }
 
 // GetKey returns the session key for the given username and proxy.
 func (s *MemLocalKeyStore) GetKey(proxy, username string, opts ...KeyOption) (*Key, error) {
-	entry := s.inMem[usernameProxyPair{username, proxy}]
-	if entry == nil {
-		return s.LocalKeyStore.GetKey(proxy, username, opts...)
+	entry, ok := s.inMem[usernameProxyPair{username, proxy}]
+	if !ok {
+		return nil, trace.NotFound("key for proxy: %q and username: %q not found", proxy, username)
 	}
 
 	return entry, nil
@@ -698,17 +690,25 @@ func (s *MemLocalKeyStore) GetKey(proxy, username string, opts ...KeyOption) (*K
 
 // DeleteKey removes a specific session key from a proxy.
 func (s *MemLocalKeyStore) DeleteKey(proxyHost, username string, opts ...KeyOption) error {
-	pair := usernameProxyPair{username, proxyHost}
-	if s.inMem[pair] == nil {
-		return s.LocalKeyStore.DeleteKey(proxyHost, username, opts...)
-	}
-
-	s.inMem[pair] = nil
+	delete(s.inMem, usernameProxyPair{username, proxyHost})
 	return nil
 }
 
 // DeleteKeys removes all session keys from disk.
 func (s *MemLocalKeyStore) DeleteKeys() error {
 	s.inMem = make(map[usernameProxyPair]*Key)
-	return s.LocalKeyStore.DeleteKeys()
+	return nil
 }
+
+// DeleteKeyOption deletes only secrets specified by the provided key
+// options keeping user's SSH/TLS certificates and private key intact.
+func (s *MemLocalKeyStore) DeleteKeyOption(proxyHost, username string, opts ...KeyOption) error {
+	return nil
+}
+
+// AddKnownHostKeys adds the public key to the list of known hosts for
+// a hostname.
+func (s *MemLocalKeyStore) AddKnownHostKeys(hostname string, keys []ssh.PublicKey) error { return nil }
+
+// SaveCerts saves trusted TLS certificates of certificate authorities.
+func (s *MemLocalKeyStore) SaveCerts(proxy string, cas []auth.TrustedCerts) error { return nil }

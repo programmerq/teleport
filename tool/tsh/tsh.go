@@ -285,8 +285,8 @@ func Run(args []string, opts ...cliOption) error {
 	app.Flag("gops-addr", "Specify gops addr to listen on").Hidden().StringVar(&cf.GopsAddr)
 	app.Flag("skip-version-check", "Skip version checking between server and client.").BoolVar(&cf.SkipVersionCheck)
 	app.Flag("debug", "Verbose logging to stdout").Short('d').BoolVar(&cf.Debug)
-	app.Flag("add-keys-to-agent", "Controls how keys are handled. Valid values are yes, no, auto or only").Short('k').Envar(addKeysToAgentEnvVar).Default(client.DefaultAddKeysToAgent).StringVar(&cf.AddKeysToAgent)
-	app.Flag("use-local-ssh-agent", fmt.Sprintf("Load generated SSH certificates into the local ssh-agent (specified via $SSH_AUTH_SOCK). You can also set %v environment variable. Default is true. Deprecated in favor of the add-keys-to-agent flag.", useLocalSSHAgentEnvVar)).
+	app.Flag("add-keys-to-agent", "Controls how keys are handled. Valid values are yes, no, auto or only").Short('k').Envar(addKeysToAgentEnvVar).Default(client.AddKeysToAgentAuto).StringVar(&cf.AddKeysToAgent)
+	app.Flag("use-local-ssh-agent", "Deprecated in favor of the add-keys-to-agent flag.").
 		Hidden().
 		Envar(useLocalSSHAgentEnvVar).
 		Default("true").
@@ -469,7 +469,7 @@ func Run(args []string, opts ...cliOption) error {
 	}
 
 	if err := validateAgentKeyOption(cf.AddKeysToAgent); err != nil {
-		return trace.Wrap(nil)
+		return trace.Wrap(err)
 	}
 
 	// Read in cluster flag from CLI or environment.
@@ -1996,10 +1996,7 @@ type envGetter func(string) string
 // parameter must be yes, no, auto or only
 func validateAgentKeyOption(supplied string) error {
 	switch supplied {
-	case "only":
-	case "auto":
-	case "yes":
-	case "no":
+	case client.AddKeysToAgentOnly, client.AddKeysToAgentAuto, client.AddKeysToAgentYes, client.AddKeysToAgentNo:
 	default:
 		return trace.BadParameter("valid values for parameter add-keys-to-agent are yes, no, auto or only, got %q", supplied)
 	}
