@@ -194,6 +194,8 @@ type CLIConf struct {
 
 	// UseLocalSSHAgent set to false will prevent this client from attempting to
 	// connect to the local ssh-agent (or similar) socket at $SSH_AUTH_SOCK.
+	//
+	// Deprecated in favor of `AddKeysToAgent`.
 	UseLocalSSHAgent bool
 
 	// AddKeysToAgent specifies the behaviour of how certs are handled.
@@ -284,7 +286,7 @@ func Run(args []string, opts ...cliOption) error {
 	app.Flag("skip-version-check", "Skip version checking between server and client.").BoolVar(&cf.SkipVersionCheck)
 	app.Flag("debug", "Verbose logging to stdout").Short('d').BoolVar(&cf.Debug)
 	app.Flag("add-keys-to-agent", "Controls how keys are handled. Valid values are yes, no, auto or only").Short('k').Envar(addKeysToAgentEnvVar).Default(client.DefaultAddKeysToAgent).StringVar(&cf.AddKeysToAgent)
-	app.Flag("use-local-ssh-agent", fmt.Sprintf("Load generated SSH certificates into the local ssh-agent (specified via $SSH_AUTH_SOCK). You can also set %v environment variable. Default is true.", useLocalSSHAgentEnvVar)).
+	app.Flag("use-local-ssh-agent", fmt.Sprintf("Load generated SSH certificates into the local ssh-agent (specified via $SSH_AUTH_SOCK). You can also set %v environment variable. Default is true. Deprecated in favor of the add-keys-to-agent flag.", useLocalSSHAgentEnvVar)).
 		Hidden().
 		Envar(useLocalSSHAgentEnvVar).
 		Default("true").
