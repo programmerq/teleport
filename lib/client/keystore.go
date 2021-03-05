@@ -679,10 +679,10 @@ func NewMemLocalKeyStore(underlyingKeyStore LocalKeyStore, saveNewKeys bool) (*M
 func (s *MemLocalKeyStore) AddKey(proxy string, username string, key *Key) error {
 	if s.saveNewKeys {
 		return s.LocalKeyStore.AddKey(proxy, username, key)
-	} else {
-		s.inMem[usernameProxyPair{username, proxy}] = key
-		return nil
 	}
+
+	s.inMem[usernameProxyPair{username, proxy}] = key
+	return nil
 }
 
 // GetKey returns the session key for the given username and proxy.
@@ -690,9 +690,9 @@ func (s *MemLocalKeyStore) GetKey(proxy, username string, opts ...KeyOption) (*K
 	entry := s.inMem[usernameProxyPair{username, proxy}]
 	if entry == nil {
 		return s.LocalKeyStore.GetKey(proxy, username, opts...)
-	} else {
-		return entry, nil
 	}
+
+	return entry, nil
 }
 
 // DeleteKey removes a specific session key from a proxy.
