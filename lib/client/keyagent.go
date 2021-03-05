@@ -103,6 +103,9 @@ func NewKeyStoreCertChecker(keyStore LocalKeyStore) ssh.HostKeyCallback {
 	}
 }
 
+// agentSupportSSHCertificates checks if the running agent supports SSH certificates.
+// This detection implementation is as described in RFD 18 and works by simply checking for
+// presence of gpg-agent which is a common agent known to not support SSH certificates.
 func agentSupportsSSHCertificates() bool {
 	agent := os.Getenv(teleport.SSHAuthSock)
 	return !strings.Contains(agent, "gpg-agent")
