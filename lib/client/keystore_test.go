@@ -448,3 +448,82 @@ Fa6bvW5jo543NztjlKts7XYVqroMCu0sIMS7R4JGsmw3VJcnnMP2
 
 	CAPub = []byte(`ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDAGDCf6+SMJwoSvZ9tfWYs3nnkH1qZVh8P99RkE1tcqkdqpieUzZaXJFH7EKtT0f9frFP7AomzW2zEVvF0FzVFYm1qrP9WlAKOiY66UHPC6bMHmFOkl8ZuUaOQ++m3XPB+Yp2kGDSPFdQcdHi7g3o5fR3F3QiZFDhb1BS0SrOCpOhLm7iLCl6DqLVKgB0cFpJ6piEr36causkECX8dVKC8v20af/5xCqU6JDPS3rVXbT6gwEA/6s5MiLBFef3yIwoWPNVbUdMvkvCK3eglBfQut38jq03YN7pMnFts46QXjlX8/+ScHNvFXR+meFy9kydCqDWp1SY1WLpULU7mog+L ekontsevoy@turing`)
 )
+
+func makeTestMemKeyStore(t *testing.T, save bool) (*MemLocalKeyStore, string) {
+	dir := t.TempDir()
+	backingKeyStore, err := NewFSLocalKeyStore(dir)
+	require.NoError(t, err)
+	return NewMemLocalKeyStore(backingKeyStore, save), dir
+}
+
+func TestMemLocalKeyStoreNoSave(t *testing.T) {
+	s, cleanup := newTest(t)
+	defer cleanup()
+
+	// define some helpers
+	const proxy = "https://test.com"
+	const username = "test"
+
+	// create keystore
+	keystore, dir := makeTestMemKeyStore(t, false)
+
+	// add test key
+	key := s.makeSignedKey(t, false)
+	err := keystore.AddKey(proxy, username, key)
+	require.NoError(t, err)
+
+	// check it wasn't saved to disk
+	files, err := ioutil.ReadDir(dir)
+	require.NoError(t, err)
+	require.Empty(t, files)
+
+	// check that the key exists in the store
+	retreivedKey, err := keystore.GetKey(proxy, username)
+	require.NoError(t, err)
+	require.NotNil(t, retreivedKey)
+
+	// delete the key
+	err = keystore.DeleteKey(proxy, username)
+	require.NoError(t, err)
+
+	// check that the key doesn't exist in the store
+	retreivedKey, err = keystore.GetKey(proxy, username)
+	require.Error(t, err)
+	require.Nil(t, retreivedKey)
+}
+
+func TestMemLocalKeyStoreDoSave(t *testing.T) {
+	s, cleanup := newTest(t)
+	defer cleanup()
+
+	// define some helpers
+	const proxy = "https://test.com"
+	const username = "test"
+
+	// create keystore
+	keystore, dir := makeTestMemKeyStore(t, true)
+
+	// add test key
+	key := s.makeSignedKey(t, false)
+	err := keystore.AddKey(proxy, username, key)
+	require.NoError(t, err)
+
+	// check it was saved to disk
+	files, err := ioutil.ReadDir(dir)
+	require.NoError(t, err)
+	require.NotEmpty(t, files)
+
+	// check that the key exists in the store
+	retreivedKey, err := keystore.GetKey(proxy, username)
+	require.NoError(t, err)
+	require.NotNil(t, retreivedKey)
+
+	// delete the key
+	err = keystore.DeleteKey(proxy, username)
+	require.NoError(t, err)
+
+	// check that the key doesn't exist in the store
+	retreivedKey, err = keystore.GetKey(proxy, username)
+	require.Error(t, err)
+	require.Nil(t, retreivedKey)
+}

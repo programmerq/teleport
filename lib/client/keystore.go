@@ -670,18 +670,19 @@ type MemLocalKeyStore struct {
 }
 
 // NewMemLocalKeyStore initializes a new wrapping key store over an existing underlying one.
-func NewMemLocalKeyStore(underlyingKeyStore LocalKeyStore, saveNewKeys bool) (*MemLocalKeyStore, error) {
+func NewMemLocalKeyStore(underlyingKeyStore LocalKeyStore, saveNewKeys bool) *MemLocalKeyStore {
 	inMem := make(map[usernameProxyPair]*Key)
-	return &MemLocalKeyStore{LocalKeyStore: underlyingKeyStore, saveNewKeys: saveNewKeys, inMem: inMem}, nil
+	return &MemLocalKeyStore{LocalKeyStore: underlyingKeyStore, saveNewKeys: saveNewKeys, inMem: inMem}
 }
 
 // AddKey writes a key to the underlying key store if MemLocalKeyStore was initialized with saveNewKeys set to true.
 func (s *MemLocalKeyStore) AddKey(proxy string, username string, key *Key) error {
 	if s.saveNewKeys {
 		return s.LocalKeyStore.AddKey(proxy, username, key)
+	} else {
+		s.inMem[usernameProxyPair{username, proxy}] = key
 	}
 
-	s.inMem[usernameProxyPair{username, proxy}] = key
 	return nil
 }
 

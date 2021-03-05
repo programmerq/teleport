@@ -123,10 +123,7 @@ func NewLocalAgent(keyDir, proxyHost, username string, addKeysToAgent string) (a
 	}
 
 	if !saveNewKeysToDisk {
-		keystore, err = NewMemLocalKeyStore(keystore, false)
-		if err != nil {
-			return nil, trace.Wrap(err)
-		}
+		keystore = NewMemLocalKeyStore(keystore, false)
 	}
 
 	a = &LocalKeyAgent{
