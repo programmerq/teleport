@@ -654,3 +654,60 @@ func initKeysDir(dirPath string) (string, error) {
 
 	return dirPath, nil
 }
+
+type usernameProxyPair struct {
+	username string
+	proxy    string
+}
+
+// MemLocalKeyStore is a wrapper around any LocalKeyStore
+// with the ability to keep newly added keys in memory instead
+// of writing them to the underlying key store.
+type MemLocalKeyStore struct {
+	LocalKeyStore
+	saveNewKeys bool
+	inMem       map[usernameProxyPair]*Key
+}
+
+// NewMemLocalKeyStore initializes a new wrapping key store over an existing underlying one.
+func NewMemLocalKeyStore(underlyingKeyStore LocalKeyStore, saveNewKeys bool) (*MemLocalKeyStore, error) {
+	inMem := make(map[usernameProxyPair]*Key)
+	return &MemLocalKeyStore{LocalKeyStore: underlyingKeyStore, saveNewKeys: saveNewKeys, inMem: inMem}, nil
+}
+
+// AddKey writes a key to the underlying key store if MemLocalKeyStore was initialized with saveNewKeys set to true.
+func (s *MemLocalKeyStore) AddKey(proxy string, username string, key *Key) error {
+	if s.saveNewKeys {
+		return s.LocalKeyStore.AddKey(proxy, username, key)
+	} else {
+		s.inMem[usernameProxyPair{username, proxy}] = key
+		return nil
+	}
+}
+
+// GetKey returns the session key for the given username and proxy.
+func (s *MemLocalKeyStore) GetKey(proxy, username string, opts ...KeyOption) (*Key, error) {
+	entry := s.inMem[usernameProxyPair{username, proxy}]
+	if entry == nil {
+		return s.LocalKeyStore.GetKey(proxy, username, opts...)
+	} else {
+		return entry, nil
+	}
+}
+
+// DeleteKey removes a specific session key from a proxy.
+func (s *MemLocalKeyStore) DeleteKey(proxyHost, username string, opts ...KeyOption) error {
+	pair := usernameProxyPair{username, proxyHost}
+	if s.inMem[pair] == nil {
+		return s.LocalKeyStore.DeleteKey(proxyHost, username, opts...)
+	}
+
+	s.inMem[pair] = nil
+	return nil
+}
+
+// DeleteKeys removes all session keys from disk.
+func (s *MemLocalKeyStore) DeleteKeys() error {
+	s.inMem = make(map[usernameProxyPair]*Key)
+	return s.LocalKeyStore.DeleteKeys()
+}
