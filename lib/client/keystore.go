@@ -131,11 +131,7 @@ type LocalKeyStore interface {
 //        ├── bar.pub
 //        └── bar-x509.pem
 type FSLocalKeyStore struct {
-	// log holds the structured logger.
-	log *logrus.Entry
-
-	// KeyDir is the directory where all keys are stored.
-	KeyDir string
+	fsLocalNonSessionKeyStore
 }
 
 // NewFSLocalKeyStore creates a new filesystem-based local keystore object
@@ -149,10 +145,12 @@ func NewFSLocalKeyStore(dirPath string) (s *FSLocalKeyStore, err error) {
 	}
 
 	return &FSLocalKeyStore{
-		log: logrus.WithFields(logrus.Fields{
-			trace.Component: teleport.ComponentKeyStore,
-		}),
-		KeyDir: dirPath,
+		fsLocalNonSessionKeyStore: fsLocalNonSessionKeyStore{
+			log: logrus.WithFields(logrus.Fields{
+				trace.Component: teleport.ComponentKeyStore,
+			}),
+			KeyDir: dirPath,
+		},
 	}, nil
 }
 
@@ -450,33 +448,65 @@ func (o withDBCerts) deleteKey(dirPath, username string) error {
 	return os.RemoveAll(filepath.Join(dirPath, username+dbDirSuffix, o.teleportClusterName))
 }
 
-// SaveCerts saves trusted TLS certificates of certificate authorities
-func (fs *FSLocalKeyStore) SaveCerts(proxy string, cas []auth.TrustedCerts) (retErr error) {
-	dir, err := fs.dirFor(proxy, true)
-	if err != nil {
-		return trace.Wrap(err)
+// initKeysDir initializes the keystore root directory. Usually it is ~/.tsh
+func initKeysDir(dirPath string) (string, error) {
+	var err error
+	// not specified? use `~/.tsh`
+	if dirPath == "" {
+		u, err := user.Current()
+		if err != nil {
+			dirPath = os.TempDir()
+		} else {
+			dirPath = u.HomeDir
+		}
+		dirPath = filepath.Join(dirPath, defaultKeyDir)
 	}
-	fp, err := os.OpenFile(filepath.Join(dir, fileNameTLSCerts), os.O_CREATE|os.O_RDWR|os.O_TRUNC, 0640)
+	// create if doesn't exist:
+	_, err = os.Stat(dirPath)
 	if err != nil {
-		return trace.ConvertSystemError(err)
-	}
-	defer utils.StoreErrorOf(fp.Close, &retErr)
-	for _, ca := range cas {
-		for _, cert := range ca.TLSCertificates {
-			if _, err := fp.Write(cert); err != nil {
-				return trace.ConvertSystemError(err)
+		if os.IsNotExist(err) {
+			err = os.MkdirAll(dirPath, os.ModeDir|profileDirPerms)
+			if err != nil {
+				return "", trace.ConvertSystemError(err)
 			}
-			if _, err := fmt.Fprintln(fp); err != nil {
-				return trace.ConvertSystemError(err)
-			}
+		} else {
+			return "", trace.Wrap(err)
 		}
 	}
-	return fp.Sync()
+
+	return dirPath, nil
+}
+
+type fsLocalNonSessionKeyStore struct {
+	// log holds the structured logger.
+	log *logrus.Entry
+
+	// KeyDir is the directory where all keys are stored.
+	KeyDir string
+}
+
+// dirFor returns the path to the session keys for a given host. The value
+// for fs.KeyDir is typically "~/.tsh", sessionKeyDir is typically "keys",
+// and proxyHost typically has values like "proxy.example.com".
+//
+// If the create flag is true, the directory will be created if it does
+// not exist.
+func (fs *fsLocalNonSessionKeyStore) dirFor(proxyHost string, create bool) (string, error) {
+	dirPath := filepath.Join(fs.KeyDir, sessionKeyDir, proxyHost)
+
+	if create {
+		if err := os.MkdirAll(dirPath, profileDirPerms); err != nil {
+			fs.log.Error(err)
+			return "", trace.ConvertSystemError(err)
+		}
+	}
+
+	return dirPath, nil
 }
 
 // GetCertsPEM returns trusted TLS certificates of certificate authorities PEM
 // blocks.
-func (fs *FSLocalKeyStore) GetCertsPEM(proxy string) ([][]byte, error) {
+func (fs *fsLocalNonSessionKeyStore) GetCertsPEM(proxy string) ([][]byte, error) {
 	dir, err := fs.dirFor(proxy, false)
 	if err != nil {
 		return nil, trace.Wrap(err)
@@ -506,7 +536,7 @@ func (fs *FSLocalKeyStore) GetCertsPEM(proxy string) ([][]byte, error) {
 
 // GetCerts returns trusted TLS certificates of certificate authorities as
 // x509.CertPool.
-func (fs *FSLocalKeyStore) GetCerts(proxy string) (*x509.CertPool, error) {
+func (fs *fsLocalNonSessionKeyStore) GetCerts(proxy string) (*x509.CertPool, error) {
 	blocks, err := fs.GetCertsPEM(proxy)
 	if err != nil {
 		return nil, trace.Wrap(err)
@@ -528,8 +558,46 @@ func (fs *FSLocalKeyStore) GetCerts(proxy string) (*x509.CertPool, error) {
 	return pool, nil
 }
 
+// GetKnownHostKeys returns all known public keys from 'known_hosts'
+func (fs *fsLocalNonSessionKeyStore) GetKnownHostKeys(hostname string) ([]ssh.PublicKey, error) {
+	bytes, err := ioutil.ReadFile(filepath.Join(fs.KeyDir, fileNameKnownHosts))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, trace.Wrap(err)
+	}
+	var (
+		pubKey    ssh.PublicKey
+		retval    []ssh.PublicKey = make([]ssh.PublicKey, 0)
+		hosts     []string
+		hostMatch bool
+	)
+	for err == nil {
+		_, hosts, pubKey, _, bytes, err = ssh.ParseKnownHosts(bytes)
+		if err == nil {
+			hostMatch = (hostname == "")
+			if !hostMatch {
+				for i := range hosts {
+					if hosts[i] == hostname {
+						hostMatch = true
+						break
+					}
+				}
+			}
+			if hostMatch {
+				retval = append(retval, pubKey)
+			}
+		}
+	}
+	if err != io.EOF {
+		return nil, trace.Wrap(err)
+	}
+	return retval, nil
+}
+
 // AddKnownHostKeys adds a new entry to 'known_hosts' file
-func (fs *FSLocalKeyStore) AddKnownHostKeys(hostname string, hostKeys []ssh.PublicKey) (retErr error) {
+func (fs *fsLocalNonSessionKeyStore) AddKnownHostKeys(hostname string, hostKeys []ssh.PublicKey) (retErr error) {
 	fp, err := os.OpenFile(filepath.Join(fs.KeyDir, fileNameKnownHosts), os.O_CREATE|os.O_RDWR, 0640)
 	if err != nil {
 		return trace.ConvertSystemError(err)
@@ -569,90 +637,28 @@ func (fs *FSLocalKeyStore) AddKnownHostKeys(hostname string, hostKeys []ssh.Publ
 	return fp.Sync()
 }
 
-// GetKnownHostKeys returns all known public keys from 'known_hosts'
-func (fs *FSLocalKeyStore) GetKnownHostKeys(hostname string) ([]ssh.PublicKey, error) {
-	bytes, err := ioutil.ReadFile(filepath.Join(fs.KeyDir, fileNameKnownHosts))
+// SaveCerts saves trusted TLS certificates of certificate authorities
+func (fs *fsLocalNonSessionKeyStore) SaveCerts(proxy string, cas []auth.TrustedCerts) (retErr error) {
+	dir, err := fs.dirFor(proxy, true)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, trace.Wrap(err)
+		return trace.Wrap(err)
 	}
-	var (
-		pubKey    ssh.PublicKey
-		retval    []ssh.PublicKey = make([]ssh.PublicKey, 0)
-		hosts     []string
-		hostMatch bool
-	)
-	for err == nil {
-		_, hosts, pubKey, _, bytes, err = ssh.ParseKnownHosts(bytes)
-		if err == nil {
-			hostMatch = (hostname == "")
-			if !hostMatch {
-				for i := range hosts {
-					if hosts[i] == hostname {
-						hostMatch = true
-						break
-					}
-				}
-			}
-			if hostMatch {
-				retval = append(retval, pubKey)
-			}
-		}
-	}
-	if err != io.EOF {
-		return nil, trace.Wrap(err)
-	}
-	return retval, nil
-}
-
-// dirFor returns the path to the session keys for a given host. The value
-// for fs.KeyDir is typically "~/.tsh", sessionKeyDir is typically "keys",
-// and proxyHost typically has values like "proxy.example.com".
-//
-// If the create flag is true, the directory will be created if it does
-// not exist.
-func (fs *FSLocalKeyStore) dirFor(proxyHost string, create bool) (string, error) {
-	dirPath := filepath.Join(fs.KeyDir, sessionKeyDir, proxyHost)
-
-	if create {
-		if err := os.MkdirAll(dirPath, profileDirPerms); err != nil {
-			fs.log.Error(err)
-			return "", trace.ConvertSystemError(err)
-		}
-	}
-
-	return dirPath, nil
-}
-
-// initKeysDir initializes the keystore root directory. Usually it is ~/.tsh
-func initKeysDir(dirPath string) (string, error) {
-	var err error
-	// not specified? use `~/.tsh`
-	if dirPath == "" {
-		u, err := user.Current()
-		if err != nil {
-			dirPath = os.TempDir()
-		} else {
-			dirPath = u.HomeDir
-		}
-		dirPath = filepath.Join(dirPath, defaultKeyDir)
-	}
-	// create if doesn't exist:
-	_, err = os.Stat(dirPath)
+	fp, err := os.OpenFile(filepath.Join(dir, fileNameTLSCerts), os.O_CREATE|os.O_RDWR|os.O_TRUNC, 0640)
 	if err != nil {
-		if os.IsNotExist(err) {
-			err = os.MkdirAll(dirPath, os.ModeDir|profileDirPerms)
-			if err != nil {
-				return "", trace.ConvertSystemError(err)
+		return trace.ConvertSystemError(err)
+	}
+	defer utils.StoreErrorOf(fp.Close, &retErr)
+	for _, ca := range cas {
+		for _, cert := range ca.TLSCertificates {
+			if _, err := fp.Write(cert); err != nil {
+				return trace.ConvertSystemError(err)
 			}
-		} else {
-			return "", trace.Wrap(err)
+			if _, err := fmt.Fprintln(fp); err != nil {
+				return trace.ConvertSystemError(err)
+			}
 		}
 	}
-
-	return dirPath, nil
+	return fp.Sync()
 }
 
 type usernameProxyPair struct {
@@ -662,14 +668,19 @@ type usernameProxyPair struct {
 
 // MemLocalKeyStore is an in-memory keystore implementation.
 type MemLocalKeyStore struct {
-	dirPath string
-	inMem   map[usernameProxyPair]*Key
+	fsLocalNonSessionKeyStore
+	inMem map[usernameProxyPair]*Key
 }
 
 // NewMemLocalKeyStore initializes a new wrapping key store over an existing underlying one.
-func NewMemLocalKeyStore(dirpath string) *MemLocalKeyStore {
+func NewMemLocalKeyStore(dirPath string) *MemLocalKeyStore {
 	inMem := make(map[usernameProxyPair]*Key)
-	return &MemLocalKeyStore{dirpath, inMem}
+	return &MemLocalKeyStore{fsLocalNonSessionKeyStore: fsLocalNonSessionKeyStore{
+		log: logrus.WithFields(logrus.Fields{
+			trace.Component: teleport.ComponentKeyStore,
+		}),
+		KeyDir: dirPath,
+	}, inMem: inMem}
 }
 
 // AddKey writes a key to the underlying key store if MemLocalKeyStore was initialized with saveNewKeys set to true.
@@ -705,10 +716,3 @@ func (s *MemLocalKeyStore) DeleteKeys() error {
 func (s *MemLocalKeyStore) DeleteKeyOption(proxyHost, username string, opts ...KeyOption) error {
 	return nil
 }
-
-// AddKnownHostKeys adds the public key to the list of known hosts for
-// a hostname.
-func (s *MemLocalKeyStore) AddKnownHostKeys(hostname string, keys []ssh.PublicKey) error { return nil }
-
-// SaveCerts saves trusted TLS certificates of certificate authorities.
-func (s *MemLocalKeyStore) SaveCerts(proxy string, cas []auth.TrustedCerts) error { return nil }
