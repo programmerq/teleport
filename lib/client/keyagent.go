@@ -108,6 +108,10 @@ func agentSupportsSSHCertificates() bool {
 	return !strings.Contains(agent, "gpg-agent")
 }
 
+func shouldAddKeysToAgent(addKeysToAgent string) bool {
+	return (addKeysToAgent == "auto" || agentSupportsSSHCertificates()) || addKeysToAgent == "only" || addKeysToAgent == "yes"
+}
+
 // NewLocalAgent reads all Teleport certificates from disk (using FSLocalKeyStore),
 // creates a LocalKeyAgent, loads all certificates into it, and returns the agent.
 func NewLocalAgent(keyDir, proxyHost, username string, addKeysToAgent string) (a *LocalKeyAgent, err error) {
@@ -128,7 +132,7 @@ func NewLocalAgent(keyDir, proxyHost, username string, addKeysToAgent string) (a
 		saveKeys:  addKeysToAgent != "only",
 	}
 
-	if (addKeysToAgent == "auto" || agentSupportsSSHCertificates()) || addKeysToAgent == "only" || addKeysToAgent == "yes" {
+	if shouldAddKeysToAgent(addKeysToAgent) {
 		a.sshAgent = connectToSSHAgent()
 	} else {
 		log.Debug("Skipping connection to the local ssh-agent.")

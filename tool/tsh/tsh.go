@@ -466,18 +466,8 @@ func Run(args []string, opts ...cliOption) error {
 		return trace.Wrap(err)
 	}
 
-	// parameter must be yes, no, auto or only
-	switch cf.AddKeysToAgent {
-	case "yes":
-		break
-	case "no":
-		break
-	case "auto":
-		break
-	case "only":
-		break
-	default:
-		return trace.BadParameter("valid values for parameter add-keys-to-agent are yes, no, auto or only, got %s", cf.AddKeysToAgent)
+	if err := validateAgentKeyOption(cf.AddKeysToAgent); err != nil {
+		return trace.Wrap(nil)
 	}
 
 	// Read in cluster flag from CLI or environment.
@@ -1655,7 +1645,7 @@ func makeClient(cf *CLIConf, useProfileLogin bool) (*client.TeleportClient, erro
 	c.Browser = cf.Browser
 
 	c.AddKeysToAgent = cf.AddKeysToAgent
-	if cf.UseLocalSSHAgent == false {
+	if !cf.UseLocalSSHAgent {
 		c.AddKeysToAgent = "off"
 	}
 
@@ -2000,3 +1990,17 @@ func readClusterFlag(cf *CLIConf, fn envGetter) {
 // envGetter is used to read in the environment. In production "os.Getenv"
 // is used.
 type envGetter func(string) string
+
+// parameter must be yes, no, auto or only
+func validateAgentKeyOption(supplied string) error {
+	switch supplied {
+	case "only":
+	case "auto":
+	case "yes":
+	case "no":
+	default:
+		return trace.BadParameter("valid values for parameter add-keys-to-agent are yes, no, auto or only, got %q", supplied)
+	}
+
+	return nil
+}
