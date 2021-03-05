@@ -666,13 +666,14 @@ type usernameProxyPair struct {
 	proxy    string
 }
 
-// MemLocalKeyStore is an in-memory keystore implementation.
+// MemLocalKeyStore is an in-memory session keystore implementation.
 type MemLocalKeyStore struct {
 	fsLocalNonSessionKeyStore
 	inMem map[usernameProxyPair]*Key
 }
 
-// NewMemLocalKeyStore initializes a new wrapping key store over an existing underlying one.
+// NewMemLocalKeyStore initializes a MemLocalKeyStore, the key directory here is only used
+// for storing CA certificates and known host fingerprints.
 func NewMemLocalKeyStore(dirPath string) *MemLocalKeyStore {
 	inMem := make(map[usernameProxyPair]*Key)
 	return &MemLocalKeyStore{fsLocalNonSessionKeyStore: fsLocalNonSessionKeyStore{
