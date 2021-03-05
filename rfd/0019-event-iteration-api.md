@@ -30,7 +30,7 @@ This replaces and deprecates the `GET /:version/events` HTTPendpoint.
 
 These should be defined in [api/client/proto/authservice.proto](https://github.com/gravitational/teleport/blob/master/api/client/proto/authservice.proto).
 
-´´´protobuf
+```protobuf
 message GetEventsRequest {
    // Namespace, if not set, defaults to 'default'
    Namespace string
@@ -45,12 +45,12 @@ message GetEventsRequest {
    // When supplied the search will resume from the last key
    StartKey string
 }
-´´´
+```
 
 In-session event request.
 This replaces and deprecates the `GET /:version/events` HTTP endpoint.
 
-´´´protobuf
+```protobuf
 message GetSessionEventsRequest {
    // SessionID is a required valid session ID
    SessionID string
@@ -58,17 +58,17 @@ message GetSessionEventsRequest {
    Limit int64
    StartKey string
 }
-´´´
+```
 
 Event response from both endpoints.
 
-´´´protobuf
+```protobuf
 message Events { 
    Items repeated oneof Event
    // the key of the last event if the returned set did not contain all events found i.e limit < actual amount. this is the key clients can supply in another API request to continue fetching events from the previous last position
    LastKey string
 }
-´´´
+```
 
 #### Notes on the EventType parameter 3.1.1
 
