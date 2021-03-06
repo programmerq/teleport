@@ -18,6 +18,9 @@ package app
 
 import (
 	"context"
+	"crypto/tls"
+	"net"
+	"net/http"
 	"sync"
 	"time"
 
@@ -85,6 +88,15 @@ func (h *Handler) newSession(ctx context.Context, ws services.WebSession) (*sess
 		forward.RoundTripper(transport),
 		forward.Logger(h.log),
 		forward.PassHostHeader(true),
+		forward.WebsocketDial(func(network, address string) (net.Conn, error) {
+			tr := transport.tr.(*http.Transport)
+			conn, err := tr.DialContext(context.TODO(), network, address)
+			if err != nil {
+				return nil, trace.Wrap(err)
+			}
+			tlsConn := tls.Client(conn, tr.TLSClientConfig)
+			return tlsConn, nil
+		}),
 	)
 	if err != nil {
 		return nil, trace.Wrap(err)

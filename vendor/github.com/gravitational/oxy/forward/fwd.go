@@ -5,6 +5,7 @@ package forward
 
 import (
 	"crypto/tls"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -245,6 +246,11 @@ func (f *httpForwarder) copyRequest(req *http.Request, u *url.URL) *http.Request
 func (f *websocketForwarder) serveHTTP(w http.ResponseWriter, req *http.Request, ctx *handlerContext) {
 	outReq := f.copyRequest(req)
 	host := outReq.URL.Host
+	if host == "" {
+		host = outReq.Host
+	}
+	fmt.Printf("=== WEBSOCKET DEBUG === %#v\n", *outReq)
+	fmt.Printf("=== WEBSOCKET DEBUG URL === %#v\n", outReq.URL)
 
 	// if host does not specify a port, use the default http port
 	if !strings.Contains(host, ":") {
@@ -261,18 +267,21 @@ func (f *websocketForwarder) serveHTTP(w http.ResponseWriter, req *http.Request,
 		ctx.errHandler.ServeHTTP(w, req, err)
 		return
 	}
+
 	hijacker, ok := w.(http.Hijacker)
 	if !ok {
 		ctx.log.Errorf("Unable to hijack the connection: does not implement http.Hijacker")
 		ctx.errHandler.ServeHTTP(w, req, err)
 		return
 	}
+
 	underlyingConn, _, err := hijacker.Hijack()
 	if err != nil {
 		ctx.log.Errorf("Unable to hijack the connection: %v", err)
 		ctx.errHandler.ServeHTTP(w, req, err)
 		return
 	}
+
 	// it is now caller's responsibility to Close the underlying connection
 	defer underlyingConn.Close()
 	defer targetConn.Close()
@@ -283,6 +292,7 @@ func (f *websocketForwarder) serveHTTP(w http.ResponseWriter, req *http.Request,
 		ctx.errHandler.ServeHTTP(w, req, err)
 		return
 	}
+
 	errc := make(chan error, 2)
 	replicate := func(dst io.Writer, src io.Reader) {
 		_, err := io.Copy(dst, src)
@@ -300,6 +310,9 @@ func (f *websocketForwarder) copyRequest(req *http.Request) (outReq *http.Reques
 	outReq.URL = utils.CopyURL(req.URL)
 	outReq.URL.Scheme = req.URL.Scheme
 	outReq.URL.Host = req.URL.Host
+	if f.rewriter != nil {
+		f.rewriter.Rewrite(outReq)
+	}
 	return outReq
 }
 

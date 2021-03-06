@@ -19,6 +19,7 @@ package app
 import (
 	"context"
 	"crypto/tls"
+	"fmt"
 	"net"
 	"net/http"
 	"net/url"
@@ -154,6 +155,13 @@ func (t *transport) RoundTrip(r *http.Request) (*http.Response, error) {
 	}
 
 	return resp, nil
+}
+
+func (t *transport) Rewrite(r *http.Request) {
+	fmt.Printf("=== TRANSPORT REWRITE WEBSOCKET %v -> %v\n", r.URL.Host, t.uri.Host)
+	//r.URL.Scheme = "ws"
+	r.URL.Host = t.uri.Host
+	r.Host = t.uri.Host
 }
 
 // rewriteRequest applies any rewriting rules to the request before it's forwarded.
