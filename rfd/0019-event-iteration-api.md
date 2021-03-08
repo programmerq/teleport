@@ -106,7 +106,7 @@ Not an expert on the format used for filelog but since it is a plain sequence of
 
 Firestore seems to have good support for pagination with it's query cursors and document snapshots which allow us to define a range between startkey and startkey + limit. This means we can efficiently query a subset of events.
 
-As for the etcd backend, the official Go client now has support for API v3 which has good pagination support with the `RangeRequest` message and initial investigation shows that implementing pagination in our backend using may require some refactoring but is realistic.
+Issue [#5885](https://github.com/gravitational/teleport/pull/5885) about implementing a MySQL event backend is also relevant to this discussion. If we were to directly implemented a MySQL compatible backend, we could perform pagination by giving each event a 64 bit integer number that increases sequentially. Event search would then be performed by filtering first by date and then selecting a range of event ID's. With a B-Tree index on dates and event ID's this would allow efficient pagination. If we go with an API/plugin based approach as @knisbet suggested, we could effectively allow for the same thing by exposing a search endpoint that in turn does this date and event ID filtering.
 
 #### Client library
 
