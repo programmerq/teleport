@@ -2474,8 +2474,8 @@ func (a *ServerWithRoles) UpsertAppSession(ctx context.Context, session types.We
 }
 
 // DeleteAppSession removes an application web session.
-func (a *ServerWithRoles) DeleteAppSession(ctx context.Context, req services.DeleteAppSessionRequest) error {
-	session, err := a.authServer.GetAppSession(ctx, types.GetAppSessionRequest{SessionID: req.SessionID})
+func (a *ServerWithRoles) DeleteAppSession(ctx context.Context, req types.DeleteAppSessionRequest) error {
+	session, err := a.authServer.GetAppSession(ctx, types.GetAppSessionRequest(req))
 	if err != nil {
 		return trace.Wrap(err)
 	}
