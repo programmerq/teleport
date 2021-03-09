@@ -100,6 +100,10 @@ func NewKeyStoreCertChecker(keyStore LocalKeyStore) ssh.HostKeyCallback {
 	}
 }
 
+func agentIsPresent() bool {
+	return os.Getenv(teleport.SSHAuthSock) != ""
+}
+
 // agentSupportSSHCertificates checks if the running agent supports SSH certificates.
 // This detection implementation is as described in RFD 18 and works by simply checking for
 // presence of gpg-agent which is a common agent known to not support SSH certificates.
@@ -145,6 +149,12 @@ func NewLocalAgent(keyDir, proxyHost, username string, addKeysToAgent string) (a
 		a.sshAgent = connectToSSHAgent()
 	} else {
 		log.Debug("Skipping connection to the local ssh-agent.")
+
+		if !agentSupportsSSHCertificates() && agentIsPresent() {
+			log.Warn(`Warning: Certificate was not loaded into agent because the agent at SSH_AUTH_SOCK does not appear
+			to support SSH certificates. To force load the certificate into the running agent, use
+			the --add-keys-to-agent=yes flag`)
+		}
 	}
 
 	// unload all teleport keys from the agent first to ensure
