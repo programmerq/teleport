@@ -459,11 +459,12 @@ func TestMemLocalKeyStore(t *testing.T) {
 
 	// create keystore
 	dir := t.TempDir()
-	keystore := NewMemLocalKeyStore(dir)
+	keystore, err := NewMemLocalKeyStore(dir)
+	require.NoError(t, err)
 
 	// add test key
 	key := s.makeSignedKey(t, false)
-	err := keystore.AddKey(proxy, username, key)
+	err = keystore.AddKey(proxy, username, key)
 	require.NoError(t, err)
 
 	// check that the key exists in the store

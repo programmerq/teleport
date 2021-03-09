@@ -124,7 +124,10 @@ func NewLocalAgent(keyDir, proxyHost, username string, addKeysToAgent string) (a
 			return nil, trace.Wrap(err)
 		}
 	} else {
-		keystore = NewMemLocalKeyStore(keyDir)
+		keystore, err = NewMemLocalKeyStore(keyDir)
+		if err != nil {
+			return nil, trace.Wrap(err)
+		}
 	}
 
 	a = &LocalKeyAgent{

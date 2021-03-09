@@ -674,14 +674,19 @@ type MemLocalKeyStore struct {
 
 // NewMemLocalKeyStore initializes a MemLocalKeyStore, the key directory here is only used
 // for storing CA certificates and known host fingerprints.
-func NewMemLocalKeyStore(dirPath string) *MemLocalKeyStore {
+func NewMemLocalKeyStore(dirPath string) (*MemLocalKeyStore, error) {
+	dirPath, err := initKeysDir(dirPath)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+
 	inMem := make(map[usernameProxyPair]*Key)
 	return &MemLocalKeyStore{fsLocalNonSessionKeyStore: fsLocalNonSessionKeyStore{
 		log: logrus.WithFields(logrus.Fields{
 			trace.Component: teleport.ComponentKeyStore,
 		}),
 		KeyDir: dirPath,
-	}, inMem: inMem}
+	}, inMem: inMem}, nil
 }
 
 // AddKey writes a key to the underlying key store if MemLocalKeyStore was initialized with saveNewKeys set to true.
