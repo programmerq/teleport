@@ -156,6 +156,10 @@ func WaitForAppSession(ctx context.Context, sessionID, user string, ap AccessPoi
 	_, err = local.WaitForEvent(ctx, watcher, local.EventMatcherFunc(matchEvent), clockwork.NewRealClock())
 	if err != nil {
 		logger.WithError(err).Warn("Failed to wait for application session.")
+		// See again if we maybe missed the event but the session was actually created.
+		if _, err := ap.GetAppSession(ctx, services.GetAppSessionRequest{SessionID: sessionID}); err == nil {
+			return nil
+		}
 	}
 	return trace.Wrap(err)
 }

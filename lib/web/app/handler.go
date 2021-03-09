@@ -145,7 +145,7 @@ func (h *Handler) handleForward(w http.ResponseWriter, r *http.Request, session 
 func (h *Handler) authenticate(ctx context.Context, r *http.Request) (*session, error) {
 	sessionID, err := h.extractSessionID(r)
 	if err != nil {
-		h.log.Debugf("Failed to extract session id: %v.", err)
+		h.log.Warnf("Failed to extract session id: %v.", err)
 		return nil, trace.AccessDenied("invalid session")
 	}
 
