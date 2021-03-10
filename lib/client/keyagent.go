@@ -116,24 +116,9 @@ func shouldAddKeysToAgent(addKeysToAgent string) bool {
 	return (addKeysToAgent == AddKeysToAgentAuto && agentSupportsSSHCertificates()) || addKeysToAgent == AddKeysToAgentOnly || addKeysToAgent == AddKeysToAgentYes
 }
 
-// NewLocalAgent reads all certificates either from disk or creates an empty memory key store
-// creates a LocalKeyAgent and loads all found certificates into it and then checks for a system ssh agent
-func NewLocalAgent(keyDir, proxyHost, username string, addKeysToAgent string) (a *LocalKeyAgent, err error) {
-	saveNewKeysToDisk := addKeysToAgent != AddKeysToAgentOnly
-	var keystore LocalKeyStore
-
-	if saveNewKeysToDisk {
-		keystore, err = NewFSLocalKeyStore(keyDir)
-		if err != nil {
-			return nil, trace.Wrap(err)
-		}
-	} else {
-		keystore, err = NewMemLocalKeyStore(keyDir)
-		if err != nil {
-			return nil, trace.Wrap(err)
-		}
-	}
-
+// NewLocalAgent reads all available credentials from the provided LocalKeyStore
+// and loads them into the local and system agent
+func NewLocalAgent(keystore LocalKeyStore, proxyHost, username string, addKeysToAgent string) (a *LocalKeyAgent, err error) {
 	a = &LocalKeyAgent{
 		log: logrus.WithFields(logrus.Fields{
 			trace.Component: teleport.ComponentKeyAgent,
@@ -484,21 +469,24 @@ func (a *LocalKeyAgent) DeleteKeys() error {
 func (a *LocalKeyAgent) AuthMethods() (m []ssh.AuthMethod) {
 	// combine our certificates with external SSH agent's:
 	var signers []ssh.Signer
-	if ourCerts, _ := a.Signers(); ourCerts != nil {
-		signers = append(signers, ourCerts...)
-	}
 	if a.sshAgent != nil {
 		if sshAgentCerts, _ := a.sshAgent.Signers(); sshAgentCerts != nil {
+			fmt.Print("found identity in system agent")
 			signers = append(signers, sshAgentCerts...)
 		}
 	}
+	if ourCerts, _ := a.Signers(); ourCerts != nil {
+		signers = append(signers, ourCerts...)
+	}
 	// for every certificate create a new "auth method" and return them
-	m = make([]ssh.AuthMethod, 0)
+	m = make([]ssh.AuthMethod, len(signers))
 	for i := range signers {
 		// filter out non-certificates (like regular public SSH keys stored in the SSH agent):
 		_, ok := signers[i].PublicKey().(*ssh.Certificate)
 		if ok {
 			m = append(m, NewAuthMethodForCert(signers[i]))
+		} else {
+			fmt.Printf("filted out signer %d", signers[i])
 		}
 	}
 	return m

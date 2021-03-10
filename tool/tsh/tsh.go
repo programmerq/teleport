@@ -1558,16 +1558,6 @@ func makeClient(cf *CLIConf, useProfileLogin bool) (*client.TeleportClient, erro
 		if err != nil {
 			fmt.Printf("WARNING: Failed to load tsh profile for %q: %v\n", cf.Proxy, err)
 		}
-
-		// create a local agent so that we can authenticate with credentials stored
-		// in the system agent
-		agent, err := client.NewLocalAgent(c.KeysDir, c.WebProxyAddr, c.Username, client.AddKeysToAgentNo)
-		if err != nil {
-			trace.Wrap(err)
-		}
-
-		// add the authentication methods
-		c.AuthMethods = append(c.AuthMethods, agent.AuthMethods()...)
 	}
 	// 3: override with the CLI flags
 	if cf.Namespace != "" {
