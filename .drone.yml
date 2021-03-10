@@ -3444,7 +3444,7 @@ volumes:
 ---
 kind: pipeline
 type: kubernetes
-name: build-windows
+name: build-windows-amd64
 
 environment:
   RUNTIME: go1.15.5
@@ -4316,6 +4316,6 @@ volumes:
 
 ---
 kind: signature
-hmac: ec68269933efb56e5a8549b734ac085f83344750945dfe1dcd699c5ffe762f30
+hmac: c326794d050b95aa67ea1300bc6d763627e72f10e58f4beb00d49c0861ab277e
 
 ...
