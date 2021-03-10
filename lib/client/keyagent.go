@@ -116,8 +116,8 @@ func shouldAddKeysToAgent(addKeysToAgent string) bool {
 	return (addKeysToAgent == AddKeysToAgentAuto && agentSupportsSSHCertificates()) || addKeysToAgent == AddKeysToAgentOnly || addKeysToAgent == AddKeysToAgentYes
 }
 
-// NewLocalAgent reads all Teleport certificates from disk (using FSLocalKeyStore),
-// creates a LocalKeyAgent, loads all certificates into it, and returns the agent.
+// NewLocalAgent reads all certificates either from disk or creates an empty memory key store
+// creates a LocalKeyAgent and loads all found certificates into it and then checks for a system ssh agent
 func NewLocalAgent(keyDir, proxyHost, username string, addKeysToAgent string) (a *LocalKeyAgent, err error) {
 	saveNewKeysToDisk := addKeysToAgent != AddKeysToAgentOnly
 	var keystore LocalKeyStore
@@ -155,13 +155,6 @@ func NewLocalAgent(keyDir, proxyHost, username string, addKeysToAgent string) (a
 			to support SSH certificates. To force load the certificate into the running agent, use
 			the --add-keys-to-agent=yes flag`)
 		}
-	}
-
-	// unload all teleport keys from the agent first to ensure
-	// we don't leave stale keys in the agent
-	err = a.UnloadKeys()
-	if err != nil {
-		return nil, trace.Wrap(err)
 	}
 
 	// read in key for this user in proxy
@@ -284,8 +277,7 @@ func (a *LocalKeyAgent) UnloadKeys() error {
 	return nil
 }
 
-// GetKey returns the key for this user in a proxy from the filesystem keystore
-// at ~/.tsh.
+// GetKey returns the key for this user in a proxy from the backing key store.
 //
 // clusterName is an optional teleport cluster name to load kubernetes
 // certificates for.
