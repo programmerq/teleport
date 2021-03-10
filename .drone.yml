@@ -439,7 +439,7 @@ volumes:
 ---
 kind: pipeline
 type: kubernetes
-name: push-build-linux-i386
+name: push-build-linux-386
 
 environment:
   RUNTIME: go1.15.5
@@ -2416,7 +2416,7 @@ volumes:
 ---
 kind: pipeline
 type: kubernetes
-name: build-linux-i386
+name: build-linux-386
 
 environment:
   RUNTIME: go1.15.5
@@ -2460,7 +2460,7 @@ steps:
       # set version
       - if [[ "${DRONE_TAG}" != "" ]]; then echo "${DRONE_TAG##v}" > /go/.version.txt; else egrep ^VERSION Makefile | cut -d= -f2 > /go/.version.txt; fi; cat /go/.version.txt
 
-  - name: Build i386 release artifacts
+  - name: Build 386 release artifacts
     image: docker
     environment:
       UID: 1000
@@ -2516,7 +2516,7 @@ volumes:
 ---
 kind: pipeline
 type: kubernetes
-name: build-linux-i386-rpm
+name: build-linux-386-rpm
 
 trigger:
   event:
@@ -2529,7 +2529,7 @@ trigger:
       - gravitational/*
 
 depends_on:
-  - build-linux-i386
+  - build-linux-386
 
 workspace:
   path: /go
@@ -2576,7 +2576,7 @@ steps:
       - aws s3 cp s3://$AWS_S3_BUCKET/teleport/$${S3_PATH}teleport-v$${VERSION}-linux-386-bin.tar.gz /go/artifacts/
       - aws s3 cp s3://$AWS_S3_BUCKET/teleport/$${S3_PATH}teleport-ent-v$${VERSION}-linux-386-bin.tar.gz /go/artifacts/
 
-  - name: Build i386 RPM artifacts
+  - name: Build 386 RPM artifacts
     image: docker
     environment:
       ARCH: "386"
@@ -2601,7 +2601,7 @@ steps:
       - make rpm
       - rm -rf $GNUPG_DIR
 
-  - name: Copy i386 RPM artifacts
+  - name: Copy 386 RPM artifacts
     image: docker
     commands:
       - cd /go/src/github.com/gravitational/teleport
@@ -2642,7 +2642,7 @@ volumes:
 ---
 kind: pipeline
 type: kubernetes
-name: build-linux-i386-deb
+name: build-linux-386-deb
 
 trigger:
   event:
@@ -2655,7 +2655,7 @@ trigger:
       - gravitational/*
 
 depends_on:
-  - build-linux-i386
+  - build-linux-386
 
 workspace:
   path: /go
@@ -2702,7 +2702,7 @@ steps:
       - aws s3 cp s3://$AWS_S3_BUCKET/teleport/$${S3_PATH}teleport-v$${VERSION}-linux-386-bin.tar.gz /go/artifacts/
       - aws s3 cp s3://$AWS_S3_BUCKET/teleport/$${S3_PATH}teleport-ent-v$${VERSION}-linux-386-bin.tar.gz /go/artifacts/
 
-  - name: Build i386 DEB artifacts
+  - name: Build 386 DEB artifacts
     image: docker
     environment:
       ARCH: "386"
@@ -2718,7 +2718,7 @@ steps:
       - export VERSION=$(cat /go/.version.txt)
       - make deb
 
-  - name: Copy i386 DEB artifacts
+  - name: Copy 386 DEB artifacts
     image: docker
     commands:
       - cd /go/src/github.com/gravitational/teleport
@@ -4316,6 +4316,6 @@ volumes:
 
 ---
 kind: signature
-hmac: c326794d050b95aa67ea1300bc6d763627e72f10e58f4beb00d49c0861ab277e
+hmac: 8f51a635f91a03a06a1761bb73e74bb5480d43e1df7be4070c64b7bb47a62b35
 
 ...
