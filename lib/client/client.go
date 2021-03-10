@@ -131,6 +131,9 @@ func (proxy *ProxyClient) GetLeafClusters(ctx context.Context) ([]services.Remot
 // ReissueParams encodes optional parameters for
 // user certificate reissue.
 type ReissueParams struct {
+	Username          string
+	ValidUntil        time.Time
+	CertFormat        string
 	RouteToCluster    string
 	KubernetesCluster string
 	AccessRequests    []string
@@ -140,17 +143,7 @@ type ReissueParams struct {
 // ReissueUserCerts generates certificates for the user
 // that have a metadata instructing server to route the requests to the cluster
 func (proxy *ProxyClient) ReissueUserCerts(ctx context.Context, params ReissueParams) error {
-	localAgent := proxy.teleportClient.LocalAgent()
-	key, err := localAgent.GetKey("", WithSSHCerts{})
-	if err != nil {
-		return trace.Wrap(err)
-	}
-	cert, err := key.SSHCert()
-	if err != nil {
-		return trace.Wrap(err)
-	}
-
-	clt, err := proxy.ConnectToCluster(ctx, key.ClusterName, true)
+	clt, err := proxy.ConnectToRootCluster(ctx, true)
 	if err != nil {
 		return trace.Wrap(err)
 	}
@@ -165,17 +158,22 @@ func (proxy *ProxyClient) ReissueUserCerts(ctx context.Context, params ReissuePa
 			return trace.NotFound("cluster %v not found", params.RouteToCluster)
 		}
 	}
+
+	localAgent := proxy.teleportClient.LocalAgent()
+	key, err := localAgent.GetKey("")
+	if err != nil {
+		return trace.Wrap(err)
+	}
+
 	req := proto.UserCertsRequest{
-		Username:          cert.KeyId,
 		PublicKey:         key.Pub,
-		Expires:           time.Unix(int64(cert.ValidBefore), 0),
+		Username:          params.Username,
+		Expires:           params.ValidUntil,
 		RouteToCluster:    params.RouteToCluster,
 		KubernetesCluster: params.KubernetesCluster,
 		AccessRequests:    params.AccessRequests,
 		RouteToDatabase:   params.RouteToDatabase,
-	}
-	if _, ok := cert.Permissions.Extensions[teleport.CertExtensionTeleportRoles]; !ok {
-		req.Format = teleport.CertificateFormatOldSSH
+		Format:            params.CertFormat,
 	}
 
 	certs, err := clt.GenerateUserCerts(ctx, req)

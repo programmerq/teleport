@@ -615,6 +615,9 @@ func onLogin(cf *CLIConf) error {
 		case (cf.Proxy == "" || host(cf.Proxy) == host(profile.ProxyURL.Host)) && cf.SiteName != "":
 			// trigger reissue, preserving any active requests.
 			err = tc.ReissueUserCerts(cf.Context, client.ReissueParams{
+				Username:       profile.Username,
+				ValidUntil:     profile.ValidUntil,
+				CertFormat:     profile.CertFormat,
 				AccessRequests: profile.ActiveRequests.AccessRequests,
 				RouteToCluster: cf.SiteName,
 			})
@@ -1891,11 +1894,14 @@ Loop:
 // reissueWithRequests handles a certificate reissue, applying new requests by ID,
 // and saving the updated profile.
 func reissueWithRequests(cf *CLIConf, tc *client.TeleportClient, reqIDs ...string) error {
-	profile, _, err := client.Status("", cf.Proxy)
+	profile, err := client.StatusCurrent("", cf.Proxy)
 	if err != nil {
 		return trace.Wrap(err)
 	}
 	params := client.ReissueParams{
+		Username:       profile.Username,
+		ValidUntil:     profile.ValidUntil,
+		CertFormat:     profile.CertFormat,
 		AccessRequests: reqIDs,
 		RouteToCluster: cf.SiteName,
 	}

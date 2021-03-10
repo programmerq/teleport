@@ -71,6 +71,11 @@ func newKubeCredentialsCommand(parent *kingpin.CmdClause) *kubeCredentialsComman
 }
 
 func (c *kubeCredentialsCommand) run(cf *CLIConf) error {
+	profile, err := client.StatusCurrent("", cf.Proxy)
+	if err != nil {
+		return trace.Wrap(err)
+	}
+
 	tc, err := makeClient(cf, true)
 	if err != nil {
 		return trace.Wrap(err)
@@ -99,6 +104,9 @@ func (c *kubeCredentialsCommand) run(cf *CLIConf) error {
 	log.Debugf("Requesting TLS cert for kubernetes cluster %q", c.kubeCluster)
 	err = client.RetryWithRelogin(cf.Context, tc, func() error {
 		return tc.ReissueUserCerts(cf.Context, client.ReissueParams{
+			Username:          profile.Username,
+			ValidUntil:        profile.ValidUntil,
+			CertFormat:        profile.CertFormat,
 			RouteToCluster:    c.teleportCluster,
 			KubernetesCluster: c.kubeCluster,
 		})

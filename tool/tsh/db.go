@@ -104,6 +104,9 @@ func databaseLogin(cf *CLIConf, tc *client.TeleportClient, db tlsca.RouteToDatab
 		return trace.Wrap(err)
 	}
 	err = tc.ReissueUserCerts(cf.Context, client.ReissueParams{
+		Username:       profile.Username,
+		ValidUntil:     profile.ValidUntil,
+		CertFormat:     profile.CertFormat,
 		RouteToCluster: tc.SiteName,
 		RouteToDatabase: proto.RouteToDatabase{
 			ServiceName: db.ServiceName,

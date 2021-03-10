@@ -342,6 +342,9 @@ type ProfileStatus struct {
 	// ValidUntil is the time at which this SSH certificate will expire.
 	ValidUntil time.Time
 
+	// CertFormat is the used format of SSH certificates.
+	CertFormat string
+
 	// Extensions is a list of enabled SSH features for the certificate.
 	Extensions []string
 
@@ -470,12 +473,14 @@ func readProfile(profileDir string, profileName string) (*ProfileStatus, error) 
 	// Extract roles from certificate. Note, if the certificate is in old format,
 	// this will be empty.
 	var roles []string
+	certFormat := teleport.CertificateFormatOldSSH
 	rawRoles, ok := sshCert.Extensions[teleport.CertExtensionTeleportRoles]
 	if ok {
 		roles, err = services.UnmarshalCertRoles(rawRoles)
 		if err != nil {
 			return nil, trace.Wrap(err)
 		}
+		certFormat = teleport.CertificateFormatStandard
 	}
 	sort.Strings(roles)
 
@@ -557,6 +562,7 @@ func readProfile(profileDir string, profileName string) (*ProfileStatus, error) 
 		Username:       profile.Username,
 		Logins:         sshCert.ValidPrincipals,
 		ValidUntil:     validUntil,
+		CertFormat:     certFormat,
 		Extensions:     extensions,
 		Roles:          roles,
 		Cluster:        clusterName,
