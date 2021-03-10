@@ -12,7 +12,7 @@ TEST_KUBE ?=
 
 OS ?= linux
 ARCH ?= amd64
-RUNTIME ?= go1.15.5
+RUNTIME ?= go1.16
 
 UID ?= $$(id -u)
 GID ?= $$(id -g)
