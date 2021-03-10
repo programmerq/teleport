@@ -471,7 +471,6 @@ func (a *LocalKeyAgent) AuthMethods() (m []ssh.AuthMethod) {
 	var signers []ssh.Signer
 	if a.sshAgent != nil {
 		if sshAgentCerts, _ := a.sshAgent.Signers(); sshAgentCerts != nil {
-			fmt.Print("found identity in system agent")
 			signers = append(signers, sshAgentCerts...)
 		}
 	}
@@ -479,14 +478,13 @@ func (a *LocalKeyAgent) AuthMethods() (m []ssh.AuthMethod) {
 		signers = append(signers, ourCerts...)
 	}
 	// for every certificate create a new "auth method" and return them
-	m = make([]ssh.AuthMethod, len(signers))
+	m = make([]ssh.AuthMethod, 0)
 	for i := range signers {
 		// filter out non-certificates (like regular public SSH keys stored in the SSH agent):
 		_, ok := signers[i].PublicKey().(*ssh.Certificate)
 		if ok {
 			m = append(m, NewAuthMethodForCert(signers[i]))
 		} else {
-			fmt.Printf("filted out signer %d", signers[i])
 		}
 	}
 	return m
