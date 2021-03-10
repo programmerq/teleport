@@ -77,7 +77,7 @@ func (c *kubeCredentialsCommand) run(cf *CLIConf) error {
 	}
 
 	// Try loading existing keys.
-	k, err := tc.LocalAgent().GetKey(client.WithKubeCerts(c.teleportCluster))
+	k, err := tc.LocalAgent().GetKey(c.teleportCluster, client.WithKubeCerts{})
 	if err != nil && !trace.IsNotFound(err) {
 		return trace.Wrap(err)
 	}
@@ -108,7 +108,7 @@ func (c *kubeCredentialsCommand) run(cf *CLIConf) error {
 	}
 
 	// ReissueUserCerts should cache the new cert on disk, re-read them.
-	k, err = tc.LocalAgent().GetKey(client.WithKubeCerts(c.teleportCluster))
+	k, err = tc.LocalAgent().GetKey(c.teleportCluster, client.WithKubeCerts{})
 	if err != nil {
 		return trace.Wrap(err)
 	}

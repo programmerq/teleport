@@ -42,7 +42,6 @@ import (
 	"github.com/gravitational/teleport/lib/services"
 	"github.com/gravitational/teleport/lib/sshutils"
 	"github.com/gravitational/teleport/lib/sshutils/scp"
-	"github.com/gravitational/teleport/lib/tlsca"
 	"github.com/gravitational/teleport/lib/utils"
 	"github.com/gravitational/teleport/lib/utils/socks"
 
@@ -117,11 +116,7 @@ func (proxy *ProxyClient) GetSites() ([]services.Site, error) {
 
 // GetLeafClusters returns the leaf/remote clusters.
 func (proxy *ProxyClient) GetLeafClusters(ctx context.Context) ([]services.RemoteCluster, error) {
-	rootClusterName, err := proxy.RootClusterName()
-	if err != nil {
-		return nil, trace.Wrap(err)
-	}
-	clt, err := proxy.ConnectToCluster(ctx, rootClusterName, false)
+	clt, err := proxy.ConnectToRootCluster(ctx, false)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
@@ -146,7 +141,7 @@ type ReissueParams struct {
 // that have a metadata instructing server to route the requests to the cluster
 func (proxy *ProxyClient) ReissueUserCerts(ctx context.Context, params ReissueParams) error {
 	localAgent := proxy.teleportClient.LocalAgent()
-	key, err := localAgent.GetKey(WithKubeCerts(params.RouteToCluster))
+	key, err := localAgent.GetKey("", WithSSHCerts{})
 	if err != nil {
 		return trace.Wrap(err)
 	}
@@ -154,16 +149,8 @@ func (proxy *ProxyClient) ReissueUserCerts(ctx context.Context, params ReissuePa
 	if err != nil {
 		return trace.Wrap(err)
 	}
-	tlsCert, err := key.TeleportTLSCertificate()
-	if err != nil {
-		return trace.Wrap(err)
-	}
-	rootClusterName, err := tlsca.ClusterName(tlsCert.Issuer)
-	if err != nil {
-		return trace.Wrap(err)
-	}
 
-	clt, err := proxy.ConnectToCluster(ctx, rootClusterName, true)
+	clt, err := proxy.ConnectToCluster(ctx, key.ClusterName, true)
 	if err != nil {
 		return trace.Wrap(err)
 	}
@@ -203,6 +190,7 @@ func (proxy *ProxyClient) ReissueUserCerts(ctx context.Context, params ReissuePa
 	if params.RouteToDatabase.ServiceName != "" {
 		key.DBTLSCerts[params.RouteToDatabase.ServiceName] = certs.TLS
 	}
+	key.ClusterName = params.RouteToCluster
 
 	// save the cert to the local storage (~/.tsh usually):
 	_, err = localAgent.AddKey(key)
@@ -212,19 +200,11 @@ func (proxy *ProxyClient) ReissueUserCerts(ctx context.Context, params ReissuePa
 // RootClusterName returns name of the current cluster
 func (proxy *ProxyClient) RootClusterName() (string, error) {
 	localAgent := proxy.teleportClient.LocalAgent()
-	key, err := localAgent.GetKey()
+	key, err := localAgent.GetKey("")
 	if err != nil {
 		return "", trace.Wrap(err)
 	}
-	tlsCert, err := key.TeleportTLSCertificate()
-	if err != nil {
-		return "", trace.Wrap(err)
-	}
-	clusterName, err := tlsca.ClusterName(tlsCert.Issuer)
-	if err != nil {
-		return "", trace.Wrap(err)
-	}
-	return clusterName, nil
+	return key.ClusterName, nil
 }
 
 // CreateAccessRequest registers a new access request with the auth server.
@@ -403,7 +383,7 @@ func (proxy *ProxyClient) ConnectToCluster(ctx context.Context, clusterName stri
 	}
 
 	localAgent := proxy.teleportClient.LocalAgent()
-	key, err := localAgent.GetKey()
+	key, err := localAgent.GetKey(clusterName)
 	if err != nil {
 		return nil, trace.Wrap(err, "failed to fetch TLS key for %v", proxy.teleportClient.Username)
 	}

@@ -196,6 +196,7 @@ func TestOIDCLogin(t *testing.T) {
 		"--user", "alice", // explicitly use wrong name
 	}, cliOption(func(cf *CLIConf) error {
 		cf.mockSSOLogin = client.SSOLoginFunc(ssoLogin)
+		cf.SiteName = "localhost"
 		return nil
 	}))
 

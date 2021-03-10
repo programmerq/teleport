@@ -245,7 +245,7 @@ const (
 	userEnvVar             = "TELEPORT_USER"
 	useLocalSSHAgentEnvVar = "TELEPORT_USE_LOCAL_SSH_AGENT"
 
-	clusterHelp = "Specify the cluster to connect"
+	clusterHelp = "Specify the Teleport cluster to connect"
 	browserHelp = "Set to 'none' to suppress browser opening on login"
 )
 
@@ -559,12 +559,6 @@ func exportFile(path string, format string) error {
 
 // onLogin logs in with remote proxy and gets signed certificates
 func onLogin(cf *CLIConf) error {
-	var (
-		err error
-		tc  *client.TeleportClient
-		key *client.Key
-	)
-
 	if cf.IdentityFileIn != "" {
 		return trace.BadParameter("-i flag cannot be used here")
 	}
@@ -585,13 +579,19 @@ func onLogin(cf *CLIConf) error {
 	}
 
 	// make the teleport client and retrieve the certificate from the proxy:
-	tc, err = makeClient(cf, true)
+	tc, err := makeClient(cf, true)
 	if err != nil {
 		return trace.Wrap(err)
 	}
 
 	// client is already logged in and profile is not expired
 	if profile != nil && !profile.IsExpired(clockwork.NewRealClock()) {
+		// Load key for the profile cluster that is guaranteed to be available.
+		_, err := tc.LocalAgent().LoadKeyForCluster(profile.Cluster)
+		if err != nil {
+			return trace.Wrap(err)
+		}
+
 		switch {
 		// in case if nothing is specified, re-fetch kube clusters and print
 		// current status
@@ -651,7 +651,7 @@ func onLogin(cf *CLIConf) error {
 	// -i flag specified? save the retreived cert into an identity file
 	makeIdentityFile := (cf.IdentityFileOut != "")
 
-	key, err = tc.Login(cf.Context)
+	key, err := tc.Login(cf.Context)
 	if err != nil {
 		return trace.Wrap(err)
 	}
@@ -690,7 +690,9 @@ func onLogin(cf *CLIConf) error {
 		return nil
 	}
 
-	tc.ActivateKey(cf.Context, key)
+	if err := tc.ActivateKey(cf.Context, key); err != nil {
+		return trace.Wrap(err)
+	}
 
 	// If the proxy is advertising that it supports Kubernetes, update kubeconfig.
 	if tc.KubeProxyAddr != "" {
@@ -709,13 +711,13 @@ func onLogin(cf *CLIConf) error {
 		var prompt string
 		roleNames, err := key.CertRoles()
 		if err != nil {
-			tc.Logout()
-			return trace.Wrap(err)
+			logoutErr := tc.Logout()
+			return trace.NewAggregate(err, logoutErr)
 		}
 		// load all roles from root cluster and collect relevant options.
 		// the normal one-off TeleportClient methods don't re-use the auth server
 		// connection, so we use WithRootClusterClient to speed things up.
-		err = tc.WithRootClusterClient(cf.Context, func(clt auth.ClientI) error {
+		err = tc.WithClusterClient(cf.Context, tc.SiteName, func(clt auth.ClientI) error {
 			for _, roleName := range roleNames {
 				role, err := clt.GetRole(roleName)
 				if err != nil {
@@ -730,16 +732,17 @@ func onLogin(cf *CLIConf) error {
 			return nil
 		})
 		if err != nil {
-			tc.Logout()
-			return trace.Wrap(err)
+			logoutErr := tc.Logout()
+			return trace.NewAggregate(err, logoutErr)
 		}
 		if reason && cf.RequestReason == "" {
-			tc.Logout()
-			msg := "--requst-reason must be specified"
+			msg := "--request-reason must be specified"
 			if prompt != "" {
 				msg = msg + ", prompt=" + prompt
 			}
-			return trace.BadParameter(msg)
+			err := trace.BadParameter(msg)
+			logoutErr := tc.Logout()
+			return trace.NewAggregate(err, logoutErr)
 		}
 		if auto {
 			cf.DesiredRoles = "*"
@@ -749,8 +752,8 @@ func onLogin(cf *CLIConf) error {
 	if cf.DesiredRoles != "" {
 		fmt.Println("") // visually separate access request output
 		if err := executeAccessRequest(cf); err != nil {
-			tc.Logout()
-			return trace.Wrap(err)
+			logoutErr := tc.Logout()
+			return trace.NewAggregate(err, logoutErr)
 		}
 	}
 
@@ -1013,7 +1016,7 @@ func executeAccessRequest(cf *CLIConf) error {
 
 	var res services.AccessRequest
 	// always create access request against the root cluster
-	err = tc.WithRootClusterClient(cf.Context, func(clt auth.ClientI) error {
+	err = tc.WithClusterClient(cf.Context, cf.SiteName, func(clt auth.ClientI) error {
 		res, err = getRequestResolution(cf, clt, req)
 		return trace.Wrap(err)
 	})
