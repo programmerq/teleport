@@ -414,6 +414,7 @@ func RetryWithRelogin(ctx context.Context, tc *TeleportClient, fn func() error) 
 		return trace.Wrap(err)
 	}
 	log.Debugf("Activating relogin on %v.", err)
+
 	key, err := tc.Login(ctx)
 	if err != nil {
 		if trace.IsTrustError(err) {
@@ -954,18 +955,23 @@ func NewClient(c *Config) (tc *TeleportClient, err error) {
 		if err != nil {
 			return nil, trace.Wrap(err)
 		}
-		_, err := tc.localAgent.LoadKeyForCluster(c.SiteName)
-		if err != nil {
-			if !trace.IsNotFound(err) {
-				return nil, trace.Wrap(err)
-			}
-		}
 		if tc.HostKeyCallback == nil {
 			tc.HostKeyCallback = tc.localAgent.CheckHostSignature
 		}
 	}
 
 	return tc, nil
+}
+
+func (tc *TeleportClient) LoadKeyForCluster(clusterName string) error {
+	if tc.localAgent == nil {
+		return trace.BadParameter("TeleportClient.LoadKeyForCluster called on a client without localAgent")
+	}
+	_, err := tc.localAgent.LoadKeyForCluster(clusterName)
+	if err != nil {
+		return trace.Wrap(err)
+	}
+	return nil
 }
 
 // accessPoint returns access point based on the cache policy

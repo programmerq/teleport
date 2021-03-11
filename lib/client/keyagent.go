@@ -151,7 +151,7 @@ func (a *LocalKeyAgent) LoadKeyForCluster(clusterName string) (*agent.AddedKey, 
 // LoadKey adds a key into the Teleport ssh agent as well as the system ssh
 // agent.
 func (a *LocalKeyAgent) LoadKey(key Key) (*agent.AddedKey, error) {
-	a.log.Infof("Loading key for user %q", a.username)
+	a.log.Infof("Loading SSH key for user %q and cluster %q", a.username, key.ClusterName)
 
 	agents := []agent.Agent{a.Agent}
 	if a.sshAgent != nil {
