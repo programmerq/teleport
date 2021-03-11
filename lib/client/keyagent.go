@@ -142,6 +142,13 @@ func NewLocalAgent(keystore LocalKeyStore, proxyHost, username string, addKeysTo
 		}
 	}
 
+	// unload all teleport keys from the agent first to ensure
+	// we don't leave stale keys in the agent
+	err = a.UnloadKeys()
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+
 	// read in key for this user in proxy
 	key, err := a.GetKey()
 	if err != nil {
