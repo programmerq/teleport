@@ -484,7 +484,6 @@ func (a *LocalKeyAgent) AuthMethods() (m []ssh.AuthMethod) {
 		_, ok := signers[i].PublicKey().(*ssh.Certificate)
 		if ok {
 			m = append(m, NewAuthMethodForCert(signers[i]))
-		} else {
 		}
 	}
 	return m
