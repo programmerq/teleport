@@ -33,16 +33,25 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/google/uuid"
 	"github.com/gravitational/trace"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 
+	"github.com/gravitational/teleport"
 	"github.com/gravitational/teleport/api"
 	"github.com/gravitational/teleport/api/client/proto"
+	autoupdatev1pb "github.com/gravitational/teleport/api/gen/proto/go/teleport/autoupdate/v1"
 	integrationv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/integration/v1"
 	"github.com/gravitational/teleport/api/types"
+	"github.com/gravitational/teleport/api/types/autoupdate"
 	"github.com/gravitational/teleport/api/types/discoveryconfig"
+	"github.com/gravitational/teleport/lib/automaticupgrades"
+	"github.com/gravitational/teleport/lib/automaticupgrades/constants"
+	autoupdatelookup "github.com/gravitational/teleport/lib/autoupdate/lookup"
 	"github.com/gravitational/teleport/lib/integrations/awsoidc"
 	"github.com/gravitational/teleport/lib/integrations/awsoidc/deployserviceconfig"
+	"github.com/gravitational/teleport/lib/modules"
+	"github.com/gravitational/teleport/lib/modules/modulestest"
 	"github.com/gravitational/teleport/lib/services"
 	libui "github.com/gravitational/teleport/lib/ui"
 	"github.com/gravitational/teleport/lib/utils/log/logtest"
@@ -1679,4 +1688,97 @@ func (m *mockRelevantAWSRegionsClient) GetDatabases(context.Context) ([]types.Da
 
 func (m *mockRelevantAWSRegionsClient) ListDiscoveryConfigs(ctx context.Context, pageSize int, nextToken string) ([]*discoveryconfig.DiscoveryConfig, string, error) {
 	return m.discoveryConfigs, "", nil
+}
+
+// TestDeployServiceVersion asserts that AWS OIDC ECS deployments always follow
+// the cluster's managed updates target version, regardless of the cluster's
+// entitlements, and fall back to the proxy's own version when no version can
+// be resolved.
+func TestDeployServiceVersion(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	testRollout := autoupdatev1pb.AutoUpdateAgentRollout_builder{Spec: autoupdatev1pb.AutoUpdateAgentRolloutSpec_builder{
+		StartVersion:   "1.2.2",
+		TargetVersion:  "1.2.3",
+		Schedule:       autoupdate.AgentsScheduleImmediate,
+		AutoupdateMode: autoupdate.AgentsUpdateModeEnabled,
+		Strategy:       autoupdate.AgentsStrategyTimeBased,
+	}.Build()}.Build()
+
+	for _, tt := range []struct {
+		name            string
+		config          autoupdateTestHandlerConfig
+		expectedVersion string
+	}{
+		{
+			name: "rollout target version is used on self-hosted clusters",
+			config: autoupdateTestHandlerConfig{
+				rollout: testRollout,
+			},
+			expectedVersion: "1.2.3",
+		},
+		{
+			name: "rollout target version is used on cloud clusters",
+			config: autoupdateTestHandlerConfig{
+				testModules: &modulestest.Modules{TestFeatures: modules.Features{Cloud: true, AutomaticUpgrades: true}},
+				rollout:     testRollout,
+			},
+			expectedVersion: "1.2.3",
+		},
+		{
+			name: "RFD-109 channel version is used when there is no rollout",
+			config: autoupdateTestHandlerConfig{
+				channels: automaticupgrades.Channels{
+					automaticupgrades.DefaultChannelName: &automaticupgrades.Channel{StaticVersion: "3.2.1"},
+				},
+			},
+			expectedVersion: "3.2.1",
+		},
+		{
+			name:            "proxy version is used when managed updates are not configured",
+			config:          autoupdateTestHandlerConfig{},
+			expectedVersion: teleport.Version,
+		},
+		{
+			name: "proxy version is used when the channel serves no version",
+			config: autoupdateTestHandlerConfig{
+				channels: automaticupgrades.Channels{
+					automaticupgrades.DefaultChannelName: &automaticupgrades.Channel{StaticVersion: constants.NoVersion},
+				},
+			},
+			expectedVersion: teleport.Version,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newAutoupdateTestHandler(t, tt.config)
+
+			require.Equal(t, tt.expectedVersion, h.deployServiceVersion(ctx))
+		})
+	}
+
+	t.Run("proxy version is used when the resolver fails", func(t *testing.T) {
+		ap := &autoupdateAccessPointMock{}
+		ap.On("GetAutoUpdateAgentRollout", mock.Anything).Return((*autoupdatev1pb.AutoUpdateAgentRollout)(nil), trace.AccessDenied("injected error"))
+
+		channels := automaticupgrades.Channels{}
+		require.NoError(t, channels.CheckAndSetDefaults())
+
+		resolver, err := autoupdatelookup.NewResolver(autoupdatelookup.Config{
+			RolloutGetter: ap,
+			CMCGetter:     &autoupdateProxyClientMock{},
+			Channels:      channels,
+			Log:           logtest.NewLogger(),
+			Context:       t.Context(),
+		})
+		require.NoError(t, err)
+
+		h := &Handler{
+			logger:             logtest.NewLogger(),
+			autoUpdateResolver: resolver,
+		}
+
+		require.Equal(t, teleport.Version, h.deployServiceVersion(ctx))
+	})
 }
