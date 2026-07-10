@@ -162,19 +162,7 @@ func (h *Handler) awsOIDCDeployService(w http.ResponseWriter, r *http.Request, p
 		return nil, trace.Wrap(err)
 	}
 
-	teleportVersionTag := teleport.Version
-	if automaticUpgrades(h.GetClusterFeatures()) {
-		const group, updaterUUID = "", ""
-		autoUpdateVersion, err := h.autoUpdateResolver.GetVersion(r.Context(), group, updaterUUID)
-		if err != nil {
-			h.logger.WarnContext(r.Context(),
-				"Cannot read autoupdate target version, falling back to our own version",
-				"error", err,
-				"version", teleport.Version)
-		} else {
-			teleportVersionTag = autoUpdateVersion.String()
-		}
-	}
+	teleportVersionTag := h.deployServiceVersion(ctx)
 
 	deployServiceResp, err := clt.IntegrationAWSOIDCClient().DeployService(ctx, integrationv1.DeployServiceRequest_builder{
 		DeploymentJoinTokenName: iamTokenName,
@@ -218,20 +206,7 @@ func (h *Handler) awsOIDCDeployDatabaseServices(w http.ResponseWriter, r *http.R
 		return nil, trace.Wrap(err)
 	}
 
-	teleportVersionTag := teleport.Version
-	if automaticUpgrades(h.GetClusterFeatures()) {
-		const group, updaterUUID = "", ""
-		autoUpdateVersion, err := h.autoUpdateResolver.GetVersion(r.Context(), group, updaterUUID)
-		if err != nil {
-			h.logger.WarnContext(r.Context(),
-				"Cannot read autoupdate target version, falling back to self version.",
-				"error", err,
-				"version", teleport.Version)
-		} else {
-			teleportVersionTag = autoUpdateVersion.String()
-		}
-
-	}
+	teleportVersionTag := h.deployServiceVersion(ctx)
 
 	iamTokenName := deployserviceconfig.DefaultTeleportIAMTokenName
 	deployments := make([]*integrationv1.DeployDatabaseServiceDeployment, 0, len(req.Deployments))
@@ -781,6 +756,32 @@ func (h *handlerVersionGetter) GetVersion(ctx context.Context) (*semver.Version,
 		return nil, trace.Wrap(err)
 	}
 	return autoupdateversion.EnsureSemver(teleport.Version)
+}
+
+// deployServiceVersion returns the Teleport version to use for AWS OIDC ECS
+// deployments (Database and Discovery Services).
+//
+// The target version is resolved through the cluster's managed updates
+// configuration (the autoupdate_agent_rollout resource when present, RFD-109
+// automatic_upgrades_channels otherwise) regardless of the cluster's
+// entitlements, so ECS deployments follow the cluster's configured target
+// version on self-hosted clusters as well as on Teleport Cloud. On clusters
+// without managed updates configured, the resolver serves the proxy's own
+// version.
+//
+// Version resolution is best-effort and never fails the deployment: on error,
+// the proxy's own version (teleport.Version) is used.
+func (h *Handler) deployServiceVersion(ctx context.Context) string {
+	versionGetter := &handlerVersionGetter{h}
+	targetVersion, err := versionGetter.GetVersion(ctx)
+	if err != nil {
+		h.logger.WarnContext(ctx,
+			"Cannot read autoupdate target version, falling back to our own version",
+			"error", err,
+			"version", teleport.Version)
+		return teleport.Version
+	}
+	return targetVersion.String()
 }
 
 // awsOIDCEnrollEKSClusters enroll EKS clusters by installing teleport-kube-agent Helm chart on them.
