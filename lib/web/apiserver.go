@@ -550,10 +550,6 @@ func NewHandler(cfg Config, opts ...HandlerOption) (*APIHandler, error) {
 		tracer:               cfg.TracerProvider.Tracer(teleport.ComponentWeb),
 	}
 
-	if automaticUpgrades(cfg.ClusterFeatures) && h.cfg.AutomaticUpgradesChannels == nil {
-		h.cfg.AutomaticUpgradesChannels = automaticupgrades.Channels{}
-	}
-
 	// for properly handling url-encoded parameter values.
 	h.UseRawPath = true
 
