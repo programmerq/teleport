@@ -329,3 +329,13 @@ tests:
       - isKind:
           of: ConfigMap
       - matchSnapshot: {}
+
+  - it: matches snapshot for app-cloud.yaml
+    values:
+      - ../.lint/app-cloud.yaml
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: ConfigMap
+      - matchSnapshot: {}
