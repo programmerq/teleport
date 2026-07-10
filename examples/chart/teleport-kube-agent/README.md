@@ -138,7 +138,7 @@ These are the supported values for the `apps` map:
 | `insecure_skip_verify` | Whether to skip validation of TLS certificates presented by backend apps | `apps[0].insecure_skip_verify=true`                        | `false` | No                     |
 | `rewrite.redirect`     | A list of URLs to rewrite to the public address of the app service       | `apps[0].rewrite.redirect[0]=https://192.168.1.1`          |         | No                     |
 
-Note that the `apps` map is passed verbatim to the rendered `teleport.yaml`. Refer to the [Application Access Reference](https://goteleport.com/docs/application-access/reference/) for a more complete `apps` reference.
+Note that the `apps` map is passed verbatim to the rendered `teleport.yaml`. Refer to the [Application Access Reference](https://goteleport.com/docs/enroll-resources/application-access/reference/) for a more complete `apps` reference.
 
 You can add multiple apps using `apps[1].name`, `apps[1].uri`, `apps[2].name`, `apps[2].uri` etc.
 
