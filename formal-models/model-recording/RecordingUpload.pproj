@@ -1,0 +1,7 @@
+<Project>
+  <ProjectName>RecordingUpload</ProjectName>
+  <InputFiles>
+    <PFile>./RecordingUpload.p</PFile>
+  </InputFiles>
+  <OutputDir>./PGenerated</OutputDir>
+</Project>
