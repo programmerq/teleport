@@ -64,6 +64,7 @@ dependencies {
     implementation(files("libs/vnet.aar"))
 
     implementation("androidx.appcompat:appcompat:1.7.0")
+    // Custom Tabs, so login runs in Chrome where the user's security key and
+    // passkeys already work.
     implementation("androidx.browser:browser:1.8.0")
-    implementation("com.google.android.material:material:1.12.0")
 }
