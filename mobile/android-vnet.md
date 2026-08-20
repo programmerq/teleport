@@ -392,3 +392,53 @@ the second it is `tool/tsh/common/vnet_client_application.go`.
 
 Steps 1–4 are the minimal auth-plus-suffix-matching VPN asked about. Step 5 is
 what decides whether this is a product or a demo.
+
+## Update: the prototype
+
+The research above led to a working prototype, in this same branch. What changed
+relative to the plan:
+
+- **Login goes through the browser, both ways.** `LoginHeadless` uses Teleport's
+  headless authentication: it opens `https://<proxy>/web/headless/<id>` in a
+  Chrome Custom Tab, where the user approves with whatever credential the
+  browser already has, including a hardware security key or a platform passkey.
+  `client.SSHAgentHeadlessLogin` and `services.NewHeadlessAuthenticationID` are
+  both exported, so this needs no upstream change and no WebAuthn support in the
+  app. It also works whether the cluster uses local or SSO authentication, which
+  makes it a better default on Android than SSO.
+- **Username and password login is not implementable.** `TeleportClient.AskPassword`
+  refuses to run unless stdin is a terminal, so there is no way in from an app.
+- **SSO login needs one hack.** `lib/client` builds its SSO redirector inside
+  `TeleportClient.Login` and reports the URL to open by printing it to a writer
+  captured from `os.Stderr`. The prototype swaps `os.Stderr` for a pipe and
+  scans it. A `HandleRedirect` hook on `client.Config` would remove this, and is
+  the smallest upstream change worth making.
+- **The tunnel is planned before it is established.** Android will not let an
+  app change a live interface, so the desktop pattern - create the TUN, then
+  configure routes as clusters are discovered - does not work. VNet's IPv4
+  addresses turn out to be derived deterministically from the cluster's CIDR
+  range, so `Client.PlanNetwork` asks the cluster for that range up front and
+  the app gets `VpnService.Builder` right on the first `establish()`.
+  `Host.ConfigureNetwork` is then a logging checkpoint, not an action.
+- **IPv6 is left out.** VNet generates a fresh random ULA prefix per run, so
+  routing it would require establish → read prefix → re-establish → restart
+  VNet → new prefix, which never converges. Letting the embedder supply the
+  prefix would fix it.
+- **The TUN adapter was needed, as predicted, and is now tested against the real
+  kernel driver.** `TestTUNDeviceAgainstKernelTUN` allocates a TUN interface
+  with `TUNSETIFF`, hands the raw descriptor to the adapter the way
+  `ParcelFileDescriptor.detachFd()` does, brings the interface up, and checks a
+  UDP packet sent to it arrives intact through `Read` - with no ioctl issued by
+  the adapter itself.
+- **Size, measured for real.** The AAR is 52 MB for arm64 and x86_64 together
+  with `-ldflags="-s -w"`, and 100 MB without. The arm64 APK is 98 MB, of which
+  96 MB is `libgojni.so` stored uncompressed. That is close to the 83 MB
+  predicted above and confirms that trimming means breaking `lib/vnet`'s
+  dependency on the whole Teleport client.
+
+What is still unanswered is what it always was: how Android's resolver behaves
+with a split-route tunnel, and whether Private DNS bypasses it. Those need a
+device.
+
+See [mobile/android/README.md](android/README.md) for building, installing and
+what to watch in logcat.

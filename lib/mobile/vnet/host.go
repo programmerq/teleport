@@ -70,6 +70,9 @@ type NetworkConfig struct {
 	// AddressIPv4 is the IPv4 address to assign to the TUN interface, without a
 	// prefix length. Pass it to VpnService.Builder.addAddress.
 	AddressIPv4 string
+	// PrefixIPv4 is the prefix length for AddressIPv4, for
+	// VpnService.Builder.addAddress.
+	PrefixIPv4 int
 	// AddressIPv6 is the IPv6 address to assign to the TUN interface, without a
 	// prefix length.
 	AddressIPv6 string

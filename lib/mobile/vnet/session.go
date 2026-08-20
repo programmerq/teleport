@@ -16,11 +16,10 @@
 
 //go:build linux
 
-// Package vnet runs Teleport VNet inside a mobile app process, on top of a TUN
-// file descriptor the app already owns. It is written for Android, where the
-// descriptor comes from VpnService.Builder.establish(), but nothing here is
-// Android-specific beyond the documentation, so it builds and is tested on
-// Linux too.
+// Package vnet runs Teleport VNet inside an Android app, on top of the TUN file
+// descriptor returned by VpnService.Builder.establish(). It is bound into an
+// Android library with gomobile, so every exported name here is part of the
+// app's Java/Kotlin API.
 //
 // # How this differs from tsh and Teleport Connect
 //
@@ -35,17 +34,24 @@
 // two host-facing seams - the host configuration callback and the upstream
 // nameserver source - to the app through [Host].
 //
+// # gomobile constraints
+//
+// Only a narrow set of types crosses the JNI boundary, so lists are passed as
+// newline-separated strings and field names avoid a leading acronym, which
+// trips https://github.com/golang/go/issues/32008. No exported method may be
+// named after a final method on java.lang.Object, which is why the session is
+// awaited with AwaitExit rather than Wait.
+//
 // # Status
 //
-// This is a proof of concept. It compiles for android/arm64 and its packet I/O
-// path is covered by tests on Linux, but it has never been run on a device, and
-// [libvnet.EmbeddedApplicationService] - which resolves Teleport DNS names and
-// issues client certificates - is supplied by the caller rather than
-// implemented here. See mobile/android-vnet.md for what remains.
+// This is a prototype. It supports app access to TCP applications in a single
+// root cluster; databases, SSH, leaf clusters and multiple simultaneous
+// profiles are not implemented. See mobile/android-vnet.md.
 package vnet
 
 import (
 	"context"
+	"log/slog"
 	"sync"
 
 	"github.com/gravitational/trace"
@@ -53,48 +59,53 @@ import (
 	libvnet "github.com/gravitational/teleport/lib/vnet"
 )
 
-// Config configures a VNet [Session].
-type Config struct {
-	// TUNFD is the TUN file descriptor VNet reads packets from and writes
+// sessionConfig configures a VNet [Session]. It is not exported because it
+// holds Go-side dependencies that gomobile cannot bind; the app reaches this
+// through [Client.StartVNet].
+type sessionConfig struct {
+	// tunFD is the TUN file descriptor VNet reads packets from and writes
 	// packets to. On Android it is the result of calling detachFd() on the
 	// ParcelFileDescriptor returned by VpnService.Builder.establish(). The
 	// session takes ownership of it and closes it on Stop.
-	TUNFD int
+	tunFD int
 
-	// TUNName is the name reported for the TUN interface. It is only used for
+	// tunName is the name reported for the TUN interface. It is only used for
 	// logging, because an app cannot see the real interface name that
-	// VpnService created. Defaults to "tun".
-	TUNName string
+	// VpnService created.
+	tunName string
 
-	// Host lets VNet apply its desired network configuration to the app's
-	// VpnService and discover the device's real DNS resolvers. Required.
-	Host Host
+	// host lets VNet apply its desired network configuration to the app's
+	// VpnService and discover the device's real DNS resolvers.
+	host Host
 
-	// ApplicationService resolves Teleport DNS names and issues the client
-	// certificates VNet uses to dial applications. It is a Go-side dependency
-	// rather than something the app implements, because it needs a Teleport
-	// client. Required.
-	ApplicationService libvnet.EmbeddedApplicationService
+	// applicationService resolves Teleport DNS names and issues the client
+	// certificates VNet uses to dial applications.
+	applicationService libvnet.EmbeddedApplicationService
+
+	logger *slog.Logger
 }
 
-func (c *Config) checkAndSetDefaults() error {
-	if c.TUNFD < 0 {
-		return trace.BadParameter("TUNFD is required")
+func (c *sessionConfig) checkAndSetDefaults() error {
+	if c.tunFD < 0 {
+		return trace.BadParameter("a TUN file descriptor is required")
 	}
-	if c.Host == nil {
-		return trace.BadParameter("Host is required")
+	if c.host == nil {
+		return trace.BadParameter("a host is required")
 	}
-	if c.ApplicationService == nil {
-		return trace.BadParameter("ApplicationService is required")
+	if c.applicationService == nil {
+		return trace.BadParameter("an application service is required")
 	}
-	if c.TUNName == "" {
-		c.TUNName = "tun"
+	if c.tunName == "" {
+		c.tunName = "tun"
+	}
+	if c.logger == nil {
+		c.logger = slog.Default()
 	}
 	return nil
 }
 
-// Session is a running VNet. It is created by [Start] and runs until [Stop] is
-// called or VNet fails.
+// Session is a running VNet. The app holds it for the lifetime of its
+// VpnService and calls Stop when the service is torn down.
 type Session struct {
 	cancel context.CancelFunc
 	done   chan struct{}
@@ -105,23 +116,22 @@ type Session struct {
 	stopOnce sync.Once
 }
 
-// Start takes ownership of cfg.TUNFD and runs VNet against it in the
-// background. The caller should hold the returned Session for the lifetime of
-// the VpnService and call Stop when the service is torn down.
-func Start(cfg Config) (*Session, error) {
+// startSession takes ownership of cfg.tunFD and runs VNet against it in the
+// background.
+func startSession(cfg sessionConfig) (*Session, error) {
 	if err := cfg.checkAndSetDefaults(); err != nil {
 		return nil, trace.Wrap(err)
 	}
 
-	device, err := newTUNDeviceFromFD(cfg.TUNFD, cfg.TUNName)
+	device, err := newTUNDeviceFromFD(cfg.tunFD, cfg.tunName)
 	if err != nil {
 		return nil, trace.Wrap(err, "wrapping TUN file descriptor")
 	}
 
-	bridge := hostBridge{host: cfg.Host}
+	bridge := hostBridge{host: cfg.host}
 	net, err := libvnet.NewEmbeddedVNet(libvnet.EmbeddedVNetConfig{
 		Device:                   device,
-		ApplicationService:       cfg.ApplicationService,
+		ApplicationService:       cfg.applicationService,
 		ConfigureHost:            bridge.configureHost,
 		UpstreamNameserverSource: bridge,
 	})
@@ -138,7 +148,13 @@ func Start(cfg Config) (*Session, error) {
 	go func() {
 		defer close(session.done)
 		defer device.Close()
+		cfg.logger.InfoContext(ctx, "VNet starting", "tun_fd", cfg.tunFD)
 		err := net.Run(ctx)
+		if err != nil {
+			cfg.logger.ErrorContext(ctx, "VNet stopped with an error", "error", err)
+		} else {
+			cfg.logger.InfoContext(ctx, "VNet stopped")
+		}
 		session.mu.Lock()
 		session.err = err
 		session.mu.Unlock()
@@ -153,23 +169,34 @@ func (s *Session) Stop() {
 	<-s.done
 }
 
-// Wait blocks until the session finishes and returns the error that ended it,
-// if any. A session that was stopped cleanly returns nil.
-func (s *Session) Wait() error {
+// AwaitExit blocks until the session finishes and returns the error that ended
+// it, if any. A session that was stopped cleanly returns no error.
+//
+// It is not named Wait because gomobile would map that onto Object.wait, which
+// is final in Java.
+func (s *Session) AwaitExit() error {
 	<-s.done
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.err
 }
 
-// Err returns the message of the error that ended the session, or an empty
-// string if the session is still running or ended cleanly. It exists because
-// gomobile maps a Go error return onto a thrown Java exception, which is
-// awkward to poll from a VpnService.
-func (s *Session) Err() string {
+// IsRunning reports whether the session is still running.
+func (s *Session) IsRunning() bool {
 	select {
 	case <-s.done:
+		return false
 	default:
+		return true
+	}
+}
+
+// ErrorMessage returns the message of the error that ended the session, or an
+// empty string if the session is still running or ended cleanly. It exists
+// because gomobile maps a Go error return onto a thrown Java exception, which
+// is awkward to poll from a VpnService.
+func (s *Session) ErrorMessage() string {
+	if s.IsRunning() {
 		return ""
 	}
 	s.mu.Lock()

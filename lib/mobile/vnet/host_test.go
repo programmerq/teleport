@@ -127,10 +127,10 @@ func TestHostBridgePropagatesErrors(t *testing.T) {
 	require.ErrorIs(t, err, hostErr)
 }
 
-func TestStartRejectsIncompleteConfig(t *testing.T) {
-	_, err := Start(Config{TUNFD: 3})
+func TestStartSessionRejectsIncompleteConfig(t *testing.T) {
+	_, err := startSession(sessionConfig{tunFD: 3})
 	require.Error(t, err)
 
-	_, err = Start(Config{TUNFD: 3, Host: &fakeHost{}})
+	_, err = startSession(sessionConfig{tunFD: 3, host: &fakeHost{}})
 	require.Error(t, err)
 }
