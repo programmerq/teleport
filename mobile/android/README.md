@@ -69,6 +69,38 @@ ABI and Gradle cannot strip it, because it is not a standard NDK build product.
 Or just run [`build.sh`](build.sh), which does both steps and prints where the
 APKs landed.
 
+## Building against v18
+
+This tree is `master` (19.0.0-prealpha), but the prototype builds against
+`branch/v18` with a single change, in `lib/mobile/vnet/appservice.go`. v18 keys
+apps in the key ring by scope-qualified name:
+
+```go
+routeToApp := libvnet.RouteToApp(appInfo, port)
+// ... IssueUserCertsWithMFA with RouteToApp: *routeToApp ...
+
+// v18: apps are keyed by scope-qualified name.
+cert, err := result.KeyRing.AppTLSCert(scopes.QualifiedName{
+    Name:  routeToApp.Name,
+    Scope: routeToApp.Scope,
+})
+
+// master: a bare name.
+cert, err := result.KeyRing.AppTLSCert(appKey.GetName())
+```
+
+with `"github.com/gravitational/teleport/lib/scopes"` added to the imports.
+Everything else compiles unchanged: `vnet.EmbeddedVNet` and its whole config
+surface, the protobuf builders, `client.SSHAgentHeadlessLogin`,
+`services.NewHeadlessAuthenticationID` and `vnet.RouteToApp` are all present in
+18.10.
+
+v18 does not declare `gomobile` as a tool in `go.mod`, so run
+`go get -tool golang.org/x/mobile/cmd/gobind` in the v18 tree first.
+
+**Match the build to your cluster.** A v19-prealpha client against a v18 cluster
+is not a combination anyone tests.
+
 ## Installing
 
 ```shell
@@ -181,11 +213,48 @@ query on the device reaches VNet's resolver, which answers for Teleport names
 and forwards the rest to the device's real resolvers. That works, but it puts
 VNet on the critical path for all DNS while the tunnel is up.
 
-Two things worth watching on a real device:
+### Private DNS has to be Off or Automatic
 
-- Whether Android honours the tunnel's DNS server when the tunnel only installs
-  split routes, which has been
-  [inconsistent historically](https://issuetracker.google.com/issues/116257079).
-- Whether Private DNS (DNS-over-TLS, on by default since Android 9) bypasses the
-  tunnel's resolver. If it does, Teleport names will not resolve; turning
-  Private DNS off in system settings is the check.
+Android's Private DNS setting is device-wide; there is no per-zone
+configuration, and a VPN app cannot scope it.
+
+- **Off** or **Automatic** — fine. In automatic mode the resolver probes the
+  tunnel's DNS server on port 853, gets nothing, and falls back to cleartext on
+  53, which is what VNet serves.
+- **Private DNS provider hostname** (strict mode) — breaks it. Every query goes
+  to that DoT resolver instead of the tunnel's, so Teleport names never reach
+  VNet. This is the first thing to check if nothing resolves.
+
+Google's own documentation notes that on Android 9 a VPN's DNS overrode Private
+DNS entirely, and that this
+[changed in Android 10](https://developers.google.com/speed/public-dns/docs/using#android),
+so behaviour differs by version and is worth confirming on the device you test
+on.
+
+Also still worth watching: whether Android honours the tunnel's DNS server at
+all when the tunnel only installs split routes, which has been
+[inconsistent historically](https://issuetracker.google.com/issues/116257079).
+
+### Making VNet answer for your own zone
+
+Setting up DoT or DoH for a zone does not help here — Android cannot be told to
+route one suffix differently. What makes VNet answer for a name is the cluster's
+`vnet_config`:
+
+```yaml
+kind: vnet_config
+version: v1
+metadata:
+  name: vnet-config
+spec:
+  # Defaults to 100.64.0.0/10. The tunnel routes exactly this range.
+  ipv4_cidr_range: "100.64.0.0/10"
+  # Only needed if your apps use a public_addr that is not under the proxy
+  # address. Apps at <app>.<proxy-address> work with no config at all.
+  custom_dns_zones:
+    - suffix: internal.example.com
+```
+
+Apply it with `tctl create -f vnet_config.yaml`. The app reads it at connect
+time and passes each suffix to `VpnService.Builder.addSearchDomain`; **List TCP
+apps** shows which names will resolve.
